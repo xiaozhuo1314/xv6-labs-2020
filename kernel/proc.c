@@ -295,6 +295,9 @@ fork(void)
 
   np->state = RUNNABLE;
 
+  // user add: copy trace mask
+  np->tracemask = p->tracemask;
+
   release(&np->lock);
 
   return pid;
