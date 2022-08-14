@@ -486,3 +486,80 @@ void vmprint(pagetable_t pagetable)
     depth--;
   }
 }
+
+/*
+ * user add: user kvmmap
+ * 内存映射
+ */
+void ukvmmap(pagetable_t pagetable, uint64 va, uint64 pa, uint64 sz, int perm)
+{
+  if(mappages(pagetable, va, sz, pa, perm) != 0)
+    panic("ukvmmap");
+} 
+
+/*
+ * user add: user kvminit
+ * 创建进程的内核页表
+ */
+pagetable_t ukvminit()
+{
+  pagetable_t pagetable = (pagetable_t) kalloc();
+  memset(pagetable, 0, PGSIZE);
+
+  // uart registers
+  ukvmmap(pagetable, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+
+  // virtio mmio disk interface
+  ukvmmap(pagetable, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+
+  // CLINT
+  ukvmmap(pagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+
+  // PLIC
+  ukvmmap(pagetable, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+
+  // map kernel text executable and read-only.
+  ukvmmap(pagetable, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+
+  // map kernel data and the physical RAM we'll make use of.
+  ukvmmap(pagetable, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+
+  // map the trampoline for trap entry/exit to
+  // the highest virtual address in the kernel.
+  ukvmmap(pagetable, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  return pagetable;
+}
+
+/*
+ * user add: kvminithart for process 
+ * 加载进程的内核页表到寄存器satp
+ */
+void ukvminithart(pagetable_t pagetable)
+{
+  w_satp(MAKE_SATP(pagetable));
+  sfence_vma();
+}
+
+/*
+ * user add: free kernel page table for process
+ * 清空进程的内核页表,但是不清空映射的物理内存
+ */
+void ukvmfree(pagetable_t pagetable)
+{
+  if(pagetable == 0)
+    return;
+  for(int i = 0; i < 512; ++i)
+  {
+    pte_t pte = pagetable[i];
+    if((pte & PTE_V) == 0)
+      continue;
+    uint64 child = PTE2PA(pte);
+    if((pte & (PTE_R | PTE_W | PTE_X)) == 0) // 不是最后一级
+    {
+      ukvmfree((pagetable_t)child);
+    }
+    pagetable[i] = 0;
+  }
+  kfree((void *)pagetable);
+}

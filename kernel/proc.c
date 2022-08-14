@@ -34,12 +34,12 @@ procinit(void)
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+      // char *pa = kalloc();
+      // if(pa == 0)
+      //   panic("kalloc");
+      // uint64 va = KSTACK((int) (p - proc));
+      // kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      // p->kstack = va;
   }
   kvminithart();
 }
@@ -121,6 +121,23 @@ found:
     return 0;
   }
 
+  // user add: kernel page table for process
+  p->kpagetable = ukvminit();
+  if(p->kpagetable == 0)
+  {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
+  // user add: kstack for process
+  char *kstackpa = kalloc();
+  if(kstackpa == 0)
+    panic("proc.c allocproc: kstack kalloc");
+  uint64 kstackva = KSTACK((int) (p - proc));
+  ukvmmap(p->kpagetable, kstackva, (uint64)kstackpa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = kstackva;
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -142,6 +159,9 @@ freeproc(struct proc *p)
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
+  // 删除内核页表
+  if(p->kpagetable)
+
   p->sz = 0;
   p->pid = 0;
   p->parent = 0;
@@ -473,6 +493,9 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+        // 加载进程的内核页表到satp寄存器
+        ukvminithart(p->kpagetable);
+        // 切换上下文
         swtch(&c->context, &p->context);
 
         // Process is done running for now.
@@ -486,6 +509,8 @@ scheduler(void)
 #if !defined (LAB_FS)
     if(found == 0) {
       intr_on();
+      // 没有进程时需要将全局内核页表加载到satp寄存器
+      kvminithart();
       asm volatile("wfi");
     }
 #else
@@ -696,4 +721,13 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+/*
+ * user add: free kpagetable for process
+ * 清空进程内核页表,但是不清除所映射的物理内存
+ */
+void proc_freekpagetable(pagetable_t pagetable)
+{
+  
 }
