@@ -440,3 +440,49 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+
+/*
+ * user add: vm print
+ */
+void vmprint(pagetable_t pagetable)
+{
+  if(pagetable == 0)
+    return;
+  static int depth = 0;
+  if(depth == 0) //如果是最开始被调用,而不是递归调用
+    printf("page table %p\n", pagetable);
+
+  // 遍历当前页表中的pte
+  for(int i = 0; i < 512; ++i)
+  {
+    pte_t pte = pagetable[i];
+    /* 由于page table除了最后一级pte,剩下的pte都是指向的下一级页表,pte中的标志位表示的是指向的下一级页表或者物理地址是否可读可写可执行之类的
+     * 而且下一级页表中的pte应当是在创建下下级页表的时候就确定了,不允许后面的修改等,因此在walk函数中创建pte时只赋予了PTE_V标志
+     * 但是如果pte指向的是物理页面,物理页面是允许读写执行的,所以pte中的标志应该至少有rwx标志中的一个,所以如果一个pte中具有rwx标志中的任何一个或几个
+     * 说明该pte是最后一级pte了,再下面就是物理页面了
+     */
+    if((pte & PTE_V) == 0) // 有错误
+    {
+      continue;
+    }
+    // 增加一级递归深度
+    depth++;
+    // 打印前面的..
+    for(int j = 1; j <= depth; ++j)
+    {
+      if(j == 1)
+        printf("..");
+      else
+        printf(" ..");
+    }
+    uint64 child = PTE2PA(pte);
+    printf("%d: pte %p pa %p\n", i, (uint64)pte, child);
+    if((pte & PTE_V) && (pte & (PTE_R | PTE_W | PTE_X)) == 0) // 不是最后一级pte
+    {
+      vmprint((pagetable_t)child);
+    }
+    // 减小深度
+    depth--;
+  }
+}
