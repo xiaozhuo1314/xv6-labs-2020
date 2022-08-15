@@ -255,6 +255,9 @@ userinit(void)
 
   p->state = RUNNABLE;
 
+  // 将用户进程页表复制到用户进程内核页表
+  uvm2kvm(p->pagetable, p->kpagetable, 0, p->sz);
+
   release(&p->lock);
 }
 
@@ -267,12 +270,20 @@ growproc(int n)
   struct proc *p = myproc();
 
   sz = p->sz;
+  // 判断是否大于了PLIC
+  if(PGROUNDUP(sz + n) >= PLIC)
+    return -1;
+
   if(n > 0){
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
+    // 内存增长后也需要同步更改进程的内核页表中用户进程部分的映射
+    uvm2kvm(p->pagetable, p->kpagetable, p->sz, sz);
   } else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
+    // 内存减少后也需要同步更改进程的内核页表中用户进程部分的映射
+    uvm2kvm(p->pagetable, p->kpagetable, sz, p->sz);
   }
   p->sz = sz;
   return 0;
@@ -319,6 +330,9 @@ fork(void)
   pid = np->pid;
 
   np->state = RUNNABLE;
+
+  // 将用户进程页表复制到用户进程内核页表
+  uvm2kvm(np->pagetable, np->kpagetable, 0, np->sz);
 
   release(&np->lock);
 

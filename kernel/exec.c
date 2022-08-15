@@ -116,6 +116,9 @@ exec(char *path, char **argv)
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
 
+  // 将用户进程页表复制到用户进程内核页表
+  uvm2kvm(p->pagetable, p->kpagetable, 0, p->sz);
+
   // print page table
   if(p->pid == 1)
     vmprint(p->pagetable);
