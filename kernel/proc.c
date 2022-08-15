@@ -159,8 +159,13 @@ freeproc(struct proc *p)
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
+  // 删除kstack
+  if(p->kstack)
+    uvmunmap(p->kpagetable, p->kstack, 1, 1);
   // 删除内核页表
   if(p->kpagetable)
+    proc_freekpagetable(p->kpagetable);
+  p->kpagetable = 0;
 
   p->sz = 0;
   p->pid = 0;
@@ -503,6 +508,7 @@ scheduler(void)
         c->proc = 0;
 
         found = 1;
+        
       }
       release(&p->lock);
     }
@@ -729,5 +735,5 @@ procdump(void)
  */
 void proc_freekpagetable(pagetable_t pagetable)
 {
-  
+  ukvmfree(pagetable);
 }

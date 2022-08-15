@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -132,9 +134,14 @@ kvmpa(uint64 va)
   pte_t *pte;
   uint64 pa;
   
-  pte = walk(kernel_pagetable, va, 0);
+  pte = walk(myproc()->kpagetable, va, 0);
   if(pte == 0)
-    panic("kvmpa");
+    panic("kvmpa pte is zero");
+  /*
+   * 由于将内核栈的生成放到了进程生成中,因此在全局的kernel_pagetable中没有了进程内核栈的映射
+   * 所以上面的walk函数如果用kernel_pagetable的话,*pte就是invalid,下面的if语句就会进入报panic
+   * 所以上面的walk中的第一个参数应该是进程的内核页表
+   */
   if((*pte & PTE_V) == 0)
     panic("kvmpa");
   pa = PTE2PA(*pte);
