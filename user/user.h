@@ -23,6 +23,8 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int sigalarm(int ticks, void (*handler)()); // user add
+int sigreturn(void); // user add
 
 // ulib.c
 int stat(const char*, struct stat*);

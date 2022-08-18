@@ -65,8 +65,8 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
-    // ok
+  } else if((which_dev = devintr()) != 0){ // 设备中断
+      // ok
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
@@ -78,8 +78,24 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
+  {
+    // 定时器中断,硬件定时器中断被传递到软件定时器中断
+    // 这个不是去遍历所有进程的定时器,而是执行当前进程的定时器
+    if(p->alarminvoker.gap > 0) // 设置了定时器
+    {
+      if(p->alarminvoker.cnt >= p->alarminvoker.gap)
+      {
+        p->alarminvoker.cnt = 0;
+        // 返回用户空间并执行定时器函数
+        p->alarminvoker.handler(); // 这样写肯定不对
+      }
+      else
+      {
+        p->alarminvoker.cnt++;
+      }
+    }
     yield();
-
+  }
   usertrapret();
 }
 

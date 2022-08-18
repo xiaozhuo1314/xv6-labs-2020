@@ -60,9 +60,6 @@ sys_sleep(void)
 
   if(argint(0, &n) < 0)
     return -1;
-  //打印backtrace
-  backtrace((void*)r_fp());
-
   acquire(&tickslock);
   ticks0 = ticks;
   while(ticks - ticks0 < n){

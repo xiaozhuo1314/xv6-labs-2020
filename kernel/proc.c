@@ -127,6 +127,11 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  // 设置alarm定时器
+  p->alarminvoker.cnt = 0;
+  p->alarminvoker.gap = 0;
+  p->alarminvoker.handler = 0;
+
   return p;
 }
 

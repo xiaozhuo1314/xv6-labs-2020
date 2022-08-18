@@ -118,6 +118,8 @@ void
 panic(char *s)
 {
   pr.locking = 0;
+  //打印backtrace
+  backtrace();
   printf("panic: ");
   printf(s);
   printf("\n");
@@ -133,11 +135,26 @@ printfinit(void)
   pr.locking = 1;
 }
 
+/* user add: 回溯函数,目前只能打印ra */
 void
-backtrace(void *fp)
+backtrace(void)
 {
-  if(fp == 0)
-    return;
-  printf("%p\n", (fp - 8));
-  backtrace(fp - 16);
+  uint64 fp = r_fp();
+  uint64 ra, prev_fp;
+  /*
+   * PGROUNDUP计算fp向上取整的PGSIZE的倍数
+   * PGROUNDDOWN计算fp向下取整的PGSIZE的倍数
+   * 只要这两个值之差为PGSIZE,就说明当前栈是存在的
+   * 而若fp是4096的倍数的话,说明此时fp是某个页面的起始位置
+   * 但是fp应该指向的是栈的最高位,那么就说明栈不存在
+   * 所以下面的while条件用 (fp % PGSIZE != 0) 也可以,即使两个条件打印的ra值不一样
+   * 但是通过addr2line -e kernel/kernel可以得到,两者指向的c语言文件的语句是一样的
+   */
+  while(PGROUNDUP(fp) - PGROUNDDOWN(fp) == PGSIZE)
+  {
+    ra = *(uint64 *)(fp - 8);
+    prev_fp = *(uint64 *)(fp - 16);
+    printf("%p\n", ra);
+    fp = prev_fp;
+  }
 }
