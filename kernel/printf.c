@@ -132,3 +132,12 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+void
+backtrace(void *fp)
+{
+  if(fp == 0)
+    return;
+  printf("%p\n", (fp - 8));
+  backtrace(fp - 16);
+}
