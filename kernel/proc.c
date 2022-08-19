@@ -128,9 +128,7 @@ found:
   p->context.sp = p->kstack + PGSIZE;
 
   // 设置alarm定时器
-  p->alarminvoker.cnt = 0;
-  p->alarminvoker.gap = 0;
-  p->alarminvoker.handler = 0;
+  memset(&(p->alarminvoker), 0, sizeof(struct trapframe));
 
   return p;
 }

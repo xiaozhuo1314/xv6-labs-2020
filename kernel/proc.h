@@ -85,10 +85,12 @@ enum procstate { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 typedef void (*alarm_handler)();
 struct alarm_invoker
 {
-    uint cnt; // 从上一次触发到现在经过了多少ticks
-    int gap; // 定时器触发间隔
-    alarm_handler handler; // 定时函数
-    // void *args;
+  uint cnt; // 从上一次触发到现在经过了多少ticks
+  int gap; // 定时器触发间隔
+  alarm_handler handler; // 定时函数
+  // void *args;
+  int not_alarm; // 不允许执行定时函数 0是允许,1是不允许
+  struct trapframe tf; //alarm运行前保存用户函数的trapframe
 };
 
 // Per-process state

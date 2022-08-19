@@ -13,6 +13,9 @@
  */
 uint64 sys_sigreturn(void)
 {
+    struct proc *p = myproc();
+    memmove(p->trapframe, &(p->alarminvoker.tf), sizeof(struct trapframe));
+    p->alarminvoker.not_alarm = 0;
     return 0;
 }
 

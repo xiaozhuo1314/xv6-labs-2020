@@ -81,18 +81,19 @@ usertrap(void)
   {
     // 定时器中断,硬件定时器中断被传递到软件定时器中断
     // 这个不是去遍历所有进程的定时器,而是执行当前进程的定时器
-    if(p->alarminvoker.gap > 0) // 设置了定时器
+    if( p->alarminvoker.gap > 0 && 
+        (++p->alarminvoker.cnt) >= p->alarminvoker.gap && 
+        p->alarminvoker.not_alarm == 0
+      ) // 设置了定时器,且到时间了,且允许执行定时函数
     {
-      if(p->alarminvoker.cnt >= p->alarminvoker.gap)
-      {
-        p->alarminvoker.cnt = 0;
-        // 返回用户空间并执行定时器函数
-        p->alarminvoker.handler(); // 这样写肯定不对
-      }
-      else
-      {
-        p->alarminvoker.cnt++;
-      }
+      p->alarminvoker.cnt = 0;
+      p->alarminvoker.not_alarm = 1;
+      // 返回用户空间并执行定时器函数
+      // p->alarminvoker.handler(); // 这样写肯定不对
+      // 保存足够的状态,以使sigreturn可以正确返回中断的用户代码
+      memmove(&(p->alarminvoker.tf),p->trapframe, sizeof(struct trapframe));
+
+      p->trapframe->epc = (uint64)p->alarminvoker.handler;
     }
     yield();
   }
@@ -140,7 +141,8 @@ usertrapret(void)
   // jump to trampoline.S at the top of memory, which 
   // switches to the user page table, restores user registers,
   // and switches to user mode with sret.
-  uint64 fn = TRAMPOLINE + (userret - trampoline);
+  volatile uint64 fn = TRAMPOLINE;
+  fn += (userret - trampoline);
   ((void (*)(uint64,uint64))fn)(TRAPFRAME, satp);
 }
 
