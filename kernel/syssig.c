@@ -14,8 +14,8 @@
 uint64 sys_sigreturn(void)
 {
     struct proc *p = myproc();
+    p->alarminvoker.can_alarm = 1;
     memmove(p->trapframe, &(p->alarminvoker.tf), sizeof(struct trapframe));
-    p->alarminvoker.not_alarm = 0;
     return 0;
 }
 
@@ -32,5 +32,6 @@ uint64 sys_sigalarm(void)
     struct proc *p = myproc();
     p->alarminvoker.gap = n;
     p->alarminvoker.handler = (alarm_handler)handler;
+    p->alarminvoker.can_alarm = 1;
     return 0;
 }

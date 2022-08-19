@@ -87,9 +87,9 @@ struct alarm_invoker
 {
   uint cnt; // 从上一次触发到现在经过了多少ticks
   int gap; // 定时器触发间隔
+  int can_alarm; // 执行定时函数 0是不允许,1是允许
   alarm_handler handler; // 定时函数
   // void *args;
-  int not_alarm; // 不允许执行定时函数 0是允许,1是不允许
   struct trapframe tf; //alarm运行前保存用户函数的trapframe
 };
 
