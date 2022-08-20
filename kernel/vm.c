@@ -6,6 +6,10 @@
 #include "defs.h"
 #include "fs.h"
 
+// user add
+#include "spinlock.h"
+#include "proc.h"
+
 /*
  * the kernel's page table.
  */
@@ -99,12 +103,32 @@ walkaddr(pagetable_t pagetable, uint64 va)
 
   if(va >= MAXVA)
     return 0;
-
+  
   pte = walk(pagetable, va, 0);
-  if(pte == 0)
-    return 0;
-  if((*pte & PTE_V) == 0)
-    return 0;
+
+  /* 
+   * 这里之前是写在argaddr函数的,但是按理说应该写在这里
+   * 首先是因为argaddr函数中只是找到系统调用要写入或读取的用户空间地址,并没有真正去访问,所以按照lazy原则,不应该去立马分配内存
+   * 其次所有的涉及访问内存页面的系统调用都会使用这个函数去真正读写页面,所以应该放在这里比较好
+   */
+  if(pte == 0 || (*pte & PTE_V) == 0) // 这里两个条件在walk函数的注释中写的很清楚
+  {
+    struct proc *p = myproc();
+    uint64 sp = PGROUNDUP(p->trapframe->sp) - 1;
+    if(va <= sp || va >= p->sz)
+      return 0;
+    pa = (uint64)kalloc();
+    if(pa == 0)
+      return 0;
+    memset((void *)pa, 0 ,PGSIZE);
+    va = PGROUNDDOWN(va);
+    if(mappages(p->pagetable, va, PGSIZE, pa, PTE_R | PTE_W | PTE_U) != 0)
+    {
+      kfree((void *)pa);
+      return 0;
+    }
+    return pa;
+  }
   if((*pte & PTE_U) == 0)
     return 0;
   pa = PTE2PA(*pte);
@@ -179,11 +203,45 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
   if((va % PGSIZE) != 0)
     panic("uvmunmap: not aligned");
 
+  /*
+   * 这里解释一下为什么下面用到了两个continue
+   * 首先解释一下walk函数,这个函数会去寻找最后一级(level 0)的pte,它走到level 1时,拿到了level 1的pagetable,此时for循环执行完了
+   * 然后从level 1的pagetable中依据27位索引中的最后9位索引找到了pte,并将该pte返回
+   * 很明显在这个过程中,如果是walk函数的for循环中的pte是invalid,会返回0,那么uvmunmap中pte==0这个条件就有了,此时是因为没有分配,所以是continue
+   * 如果for循环中的pte都找到了,而从level 1的pagetable中依据27位索引中的最后9位索引找到并返回的pte,有可能还未分配,但是它不为0,那么上面的条件就无法满足
+   * 但是却满足了(*pte & PTE_V) == 0条件,所以此时也是未分配的,应该是continue
+   * 下面举例子,首先看这个页表：
+   * page table 0x0000000087f55000
+     ..0: pte 0x0000000021fd3c01 pa 0x0000000087f4f000         (level 2)
+     .. ..0: pte 0x0000000021fd4001 pa 0x0000000087f50000      (level 1)
+     .. .. ..0: pte 0x0000000021fd445f pa 0x0000000087f51000   (level 0)
+     .. .. ..1: pte 0x0000000021fd4cdf pa 0x0000000087f53000
+     .. .. ..2: pte 0x0000000021fd900f pa 0x0000000087f64000
+     .. .. ..3: pte 0x0000000021fd5cdf pa 0x0000000087f57000
+     ..255: pte 0x0000000021fd5001 pa 0x0000000087f54000       (level 2)
+     .. ..511: pte 0x0000000021fd4801 pa 0x0000000087f52000    (level 1)
+     .. .. ..510: pte 0x0000000021fd58c7 pa 0x0000000087f56000 (level 0)
+     .. .. ..511: pte 0x0000000020001c4b pa 0x0000000080007000
+   * 1.若此时通过虚拟地址{000 0000 00}[00 0000 010](0 0000 0000) 0000 0000 0000来uvmunmap
+   *   很明显能通过{000 0000 00}得到level 2的pte为..0: pte 0x0000000021fd3c01 pa 0x0000000087f4f000
+   *   然后通过[00 0000 010]得知应该去获取level 1中索引为2的pte,但是页表中没有,只有索引为0的pte,此时就是walk的for循环中pte为invalid,此时walk函数返回0
+   *   这样就到了pte==0,也就是说这个页面还未分配,需要continue,后面访问页面的时候再分配,而不是仅仅获取其pte就要去分配
+   * 2.若此时通过虚拟地址{000 0000 00}[00 0000 000](0 0000 0100) 0000 0000 0000来uvmunmap
+   *   很明显能通过{000 0000 00}得到level 2的pte为..0: pte 0x0000000021fd3c01 pa 0x0000000087f4f000
+   *   能通过[00 0000 010]得到level 1的pte为.. ..0: pte 0x0000000021fd4001 pa 0x0000000087f50000
+   *   此时walk函数的for循环结束,通过level 1的pagetable拿到索引为(0 0000 0100)也就是4的pte返回
+   *   虽然在页表中level 1的pagetable没有索引为4的pte,但是walk函数还是拿到了索引为3的pte后面的内存地址上的值返回了
+   *   返回的pte不为0,pte==0条件不满足,但是由于其是invalid,所以走到了(*pte & PTE_V) == 0条件,此时由于也是因为未分配引起的
+   *   后面访问页面的时候再分配,而不是仅仅获取其pte就要去分配,所以仍然是continue
+   * 同理uvmcopy也是这样
+   */
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+      // panic("uvmunmap: walk");
+      continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      // panic("uvmunmap: not mapped");
+      continue;
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -315,9 +373,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      // panic("uvmcopy: pte should exist");
+      continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      // panic("uvmcopy: page not present");
+      continue;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
