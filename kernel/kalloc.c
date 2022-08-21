@@ -23,11 +23,19 @@ struct {
   struct run *freelist;
 } kmem;
 
+// user add: 物理页面引用计数
+struct refcnt {
+  struct spinlock lock;
+  int cnt[PHYSTOP / PGSIZE];
+} pageref;
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&pageref.lock, "pageref");
   freerange(end, (void*)PHYSTOP);
+  memset(&pageref, 0, sizeof(struct refcnt));
 }
 
 void
@@ -51,6 +59,18 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
+  // 减少一个引用后,再判断引用是否仍然大于0
+  int idx = ((uint64)pa) / PGSIZE;
+  acquire(&pageref.lock);
+  if((--pageref.cnt[idx]) > 0)
+  {
+    release(&pageref.lock);
+    return;
+  }
+  pageref.cnt[idx] = 0; // 设置引用为0
+  release(&pageref.lock);
+
+  // 下面要去释放内存
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
 
@@ -77,6 +97,50 @@ kalloc(void)
   release(&kmem.lock);
 
   if(r)
+  {
     memset((char*)r, 5, PGSIZE); // fill with junk
+    acquire(&pageref.lock);
+    pageref.cnt[(uint64)r / PGSIZE] = 1; // 设置引用为1
+    release(&pageref.lock);
+  }
   return (void*)r;
+}
+
+/* user add: 增加物理页面引用计数 */
+int irefcnt(uint64 addr)
+{
+  if(addr % PGSIZE != 0 || (char *)addr < end || addr >= PHYSTOP)
+    return -1;
+  int idx = grefcnt(addr);
+  if(idx < 0)
+    return -1;
+  idx = addr / PGSIZE;
+  acquire(&pageref.lock);
+  pageref.cnt[idx] += 1;
+  release(&pageref.lock);
+  return pageref.cnt[idx];
+}
+
+/* user add: 设置物理页面引用计数 */
+int srefcnt(uint64 addr, int cnt)
+{
+  if(addr % PGSIZE != 0 || (char *)addr < end || addr >= PHYSTOP || cnt < 1)
+    return -1;
+  int idx = addr / PGSIZE;
+  acquire(&pageref.lock);
+  pageref.cnt[idx] = cnt;
+  release(&pageref.lock);
+  return cnt;
+}
+
+/* user add: 获取物理页面引用计数 */
+int grefcnt(uint64 addr)
+{
+  if(addr % PGSIZE != 0 || (char *)addr < end || addr >= PHYSTOP)
+    return -1;
+  int idx = addr / PGSIZE;
+  acquire(&pageref.lock);
+  idx = pageref.cnt[idx];
+  release(&pageref.lock);
+  return idx;
 }

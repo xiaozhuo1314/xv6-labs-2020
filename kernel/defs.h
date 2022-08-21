@@ -63,6 +63,9 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+int             irefcnt(uint64); // user add
+int             srefcnt(uint64, int); // user add
+int             grefcnt(uint64); // user add
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -171,6 +174,12 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+pte_t*          walk(pagetable_t, uint64, int); // user add
+void*           cowalloc(pagetable_t, uint64); // user add
+void*           lazyalloc(pagetable_t, uint64); // user add
+int             is_cowpage(struct proc *, uint64); // user add
+int             is_lazypage(struct proc *, uint64); // user add
+
 
 // plic.c
 void            plicinit(void);

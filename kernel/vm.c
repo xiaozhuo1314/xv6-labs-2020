@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h" // user add
+#include "proc.h" // user add
 
 /*
  * the kernel's page table.
@@ -311,7 +313,7 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  // char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -320,12 +322,20 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    // if((mem = kalloc()) == 0)
+    //   goto err;
+    // memmove(mem, (char*)pa, PGSIZE);
+    
+    flags &= (~PTE_W);
+    // 增加物理页面引用计数,进行map
+    if(irefcnt(pa) < 1 || mappages(new, i, PGSIZE, pa, flags | PTE_COW) != 0)
+    {
+      // kfree(mem);
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
+    }
+    else
+    {
+      *pte = ((*pte) & (~PTE_W)) | PTE_COW; // 父进程也清除PTE_W标志,设置PTE_COW标志
     }
   }
   return 0;
@@ -359,6 +369,11 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
+
+    if(is_cowpage(myproc(), va0)) {
+      // 更换目标物理地址
+      pa0 = (uint64)cowalloc(pagetable, va0);
+    }
     if(pa0 == 0)
       return -1;
     n = PGSIZE - (dstva - va0);
@@ -439,4 +454,89 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+/* user add: 为cow分配页面 */
+void *cowalloc(pagetable_t pagetable, uint64 va) {
+  pte_t *pte = walk(pagetable, va, 0); // 查找pte
+  uint64 origin_pa = walkaddr(pagetable, va); // 不一定是对齐的
+  origin_pa = PGROUNDDOWN(origin_pa); // 对齐页面
+  int cnt;
+  if((cnt = grefcnt(origin_pa)) == 1) // 页面引用次数为1,就直接设置为正常界面即可
+  {
+    *pte &= (~PTE_COW);
+    *pte |= PTE_W;
+    return (void *)origin_pa;
+  }
+  else if(cnt < 1)
+  {
+    return 0;
+  }
+  else
+  {
+    uint64 pa = (uint64)kalloc();
+    if(pa == 0)
+      return 0;
+    // 将原始数据拷贝过去
+    memmove((void *)pa, (void *)origin_pa, PGSIZE);
+    *pte &= (~PTE_V); // mappages会找到pte,若不加这一句,就会panic说已经分配过了
+    uint flags = (PTE_FLAGS(*pte) & (~PTE_COW)) | PTE_W;
+    // 这里要是mappages失败了是不是应该drefcnt(origin_pa)减少的引用计数再加1呢?
+    // 很显然是不需要的,因为mappages失败后进程就会退出,前面减少是对的
+    if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, pa, flags) != 0)
+    {
+      kfree((void *)pa);
+      *pte |= PTE_V; // 还原PTE_V
+      return 0;
+    }
+    else
+    {
+      kfree((void *)origin_pa); // map成功后减少原始物理页面引用次数
+      return (void *)pa;
+    }
+  }
+}
+
+/* user add: 为lazy分配页面 */
+void *lazyalloc(pagetable_t pagetable, uint64 va)
+{
+  uint64 pa = (uint64)kalloc();
+  if(pa == 0)
+    return 0;
+  memset((void *)pa, 0 ,PGSIZE);
+  if(mappages(pagetable, PGROUNDDOWN(va), PGSIZE, pa, PTE_R | PTE_W | PTE_X | PTE_U) != 0)
+  {
+    kfree((void *)pa);
+    return 0;
+  }
+  return (void *)pa;
+}
+
+/* user add: 判断是否是cow page */
+int is_cowpage(struct proc *p, uint64 va)
+{
+  if(va >= MAXVA || va >= p->sz)
+    return 0;
+  pte_t *pte = walk(p->pagetable, va, 0); // 查找pte
+  if(pte == 0 || (*pte & PTE_V) == 0)
+    return 0;
+  if(*pte & PTE_COW)
+    return 1;
+  else
+    return 0;
+}
+
+/* user add: 判断是否是lazy page */
+int is_lazypage(struct proc *p, uint64 va)
+{
+  if(va >= MAXVA)
+    return 0;
+  uint64 sp = PGROUNDUP(p->trapframe->sp) - 1;
+  if(va <= sp || va >= p->sz)
+    return 0;
+  pte_t *pte = walk(p->pagetable, va, 0); // 查找pte
+  if(pte == 0 || (*pte & PTE_V) == 0)
+    return 1;
+  else
+    return 0;
 }
