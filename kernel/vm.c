@@ -458,9 +458,10 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 
 /* user add: 为cow分配页面 */
 void *cowalloc(pagetable_t pagetable, uint64 va) {
+  uint64 origin_pa = walkaddr(pagetable, va); // walkaddr的结果一定是对齐的
+  if(origin_pa == 0)
+    return 0;
   pte_t *pte = walk(pagetable, va, 0); // 查找pte
-  uint64 origin_pa = walkaddr(pagetable, va); // 不一定是对齐的
-  origin_pa = PGROUNDDOWN(origin_pa); // 对齐页面
   int cnt;
   if((cnt = grefcnt(origin_pa)) == 1) // 页面引用次数为1,就直接设置为正常界面即可
   {
