@@ -103,23 +103,17 @@ walkaddr(pagetable_t pagetable, uint64 va)
     return 0;
 
   pte = walk(pagetable, va, 0);
-  /* 
-   * 这里之前是写在argaddr函数的,但是按理说应该写在这里
-   * 首先是因为argaddr函数中只是找到系统调用要写入或读取的用户空间地址,并没有真正去访问,所以按照lazy原则,不应该去立马分配内存
-   * 其次所有的涉及访问内存页面的系统调用都会使用这个函数去真正读写页面,所以应该放在这里比较好
-   */
-  struct proc *p = myproc();
-  if(is_lazypage(p, va))
+  
+  if(pte == 0 || (*pte & PTE_V) == 0)
   {
-    pa = (uint64) lazyalloc(p->pagetable, va);
-    if(pa == 0)
+    if(is_lazypage(myproc(), va))
+      return (uint64)lazyalloc(pagetable, va);
+    else
       return 0;
-    return pa;
   }
-  // if(pte == 0)
-  //   return 0;
-  // if((*pte & PTE_V) == 0)
-  //   return 0;
+  if(is_cowpage(myproc(), va)) {
+    return (uint64)cowalloc(pagetable, va);
+  }
   if((*pte & PTE_U) == 0)
     return 0;
   pa = PTE2PA(*pte);
@@ -419,12 +413,9 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
 
-    if(is_cowpage(myproc(), va0)) {
-      // 更换目标物理地址
-      pa0 = (uint64)cowalloc(pagetable, va0);
-    }
     if(pa0 == 0)
       return -1;
+    
     n = PGSIZE - (dstva - va0);
     if(n > len)
       n = len;
@@ -507,10 +498,10 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 
 /* user add: 为cow分配页面 */
 void *cowalloc(pagetable_t pagetable, uint64 va) {
-  uint64 origin_pa = walkaddr(pagetable, va); // walkaddr的结果一定是对齐的
+  pte_t *pte = walk(pagetable, va, 0); // 查找pte
+  uint64 origin_pa = PTE2PA(*pte); // 结果一定是对齐的
   if(origin_pa == 0)
     return 0;
-  pte_t *pte = walk(pagetable, va, 0); // 查找pte
   int cnt;
   if((cnt = grefcnt(origin_pa)) == 1) // 页面引用次数为1,就直接设置为正常界面即可
   {
