@@ -425,6 +425,12 @@ wait(uint64 addr)
         if(np->state == ZOMBIE){
           // Found one.
           pid = np->pid;
+          /*
+           * 这里在执行usertests的时候发现sbrkbasic和sbrkfail总是会出错,原因是此时已经没有内存了
+           * 导致下面的copyout无法将退出状态拷贝出来,所以这里首先将np free掉,节省出一个页面来拷贝子进程退出状态
+           * 后面这里可以用lru算法将某个页面置换到磁盘上来节省出一个页面
+           */
+          freeproc(np); // 只是临时解决方案
           if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
                                   sizeof(np->xstate)) < 0) {
             release(&np->lock);

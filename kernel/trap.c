@@ -72,15 +72,11 @@ usertrap(void)
   else if(scause == 13 || scause == 15) {
     if(p->killed == 1)
       exit(-1);
-    // 下面在测试sbrkbasic时候会出现failed,经过排查发现是lazy allocation在实际分配内存的时候
-    // 没有物理内存了,所以会直接设置了p->killed=1,这样进程以-1状态码退出,从而导致failed
-    // 这边可以在后面搞了文件系统后,通过LRU算法将某暂时不用的页面换到磁盘上
     uint64 va = r_stval(); // 不一定是对齐的
     if(is_lazypage(p, va))
     {
       if(lazyalloc(p->pagetable, va) == 0)
-        // p->killed = 1;
-        exit(0);
+        p->killed = 1;
     }
     else if(is_cowpage(p, va))
     {
