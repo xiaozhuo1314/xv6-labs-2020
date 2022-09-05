@@ -43,7 +43,6 @@ void put(int key, int value)
 
   // is the key already present?
   struct entry *e = 0;
-  
   for (e = table[i]; e != 0; e = e->next) {
     if (e->key == key)
       break;
