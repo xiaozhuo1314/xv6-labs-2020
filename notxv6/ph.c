@@ -16,6 +16,7 @@ struct entry {
 struct entry *table[NBUCKET];
 int keys[NKEYS];
 int nthread = 1;
+pthread_mutex_t lock; // 声明锁
 
 double
 now()
@@ -42,6 +43,7 @@ void put(int key, int value)
 
   // is the key already present?
   struct entry *e = 0;
+  
   for (e = table[i]; e != 0; e = e->next) {
     if (e->key == key)
       break;
@@ -76,7 +78,9 @@ put_thread(void *xa)
   int b = NKEYS/nthread;
 
   for (int i = 0; i < b; i++) {
+    pthread_mutex_lock(&lock); // 加锁
     put(keys[b*n + i], n);
+    pthread_mutex_unlock(&lock); // 释放锁
   }
 
   return NULL;
@@ -109,6 +113,7 @@ main(int argc, char *argv[])
   }
   nthread = atoi(argv[1]);
   tha = malloc(sizeof(pthread_t) * nthread);
+  pthread_mutex_init(&lock, NULL); // 锁初始化
   srandom(0);
   assert(NKEYS % nthread == 0);
   for (int i = 0; i < NKEYS; i++) {
