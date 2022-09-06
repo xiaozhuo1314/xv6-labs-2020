@@ -30,7 +30,25 @@ barrier()
   // Block until all threads have called barrier() and
   // then increment bstate.round.
   //
-  
+  // 先去获得锁更新barrier.nthread
+  pthread_mutex_lock(&bstate.barrier_mutex);
+  bstate.nthread++;
+  if(bstate.nthread == nthread) // 如果所有线程都到这里了
+  {
+    bstate.round++; // 加一轮
+    bstate.nthread = 0; // 下一轮重新开始
+    /*
+     * pthread_cond_broadcast唤醒时会将所有线程唤醒
+     * 所有在pthread_cond_wait睡觉的线程都会被唤醒,然后去争抢锁
+     * 争抢到锁的继续执行,没有争抢到的继续休眠,争抢到锁的执行完后会释放锁并通知其他线程
+     */
+    pthread_cond_broadcast(&bstate.barrier_cond);
+  }
+  else // 还有线程未到这里,所以需要等待
+  {
+    pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);
+  }
+  pthread_mutex_unlock(&bstate.barrier_mutex);
 }
 
 static void *
