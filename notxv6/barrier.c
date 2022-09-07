@@ -33,21 +33,34 @@ barrier()
   // 先去获得锁更新barrier.nthread
   pthread_mutex_lock(&bstate.barrier_mutex);
   bstate.nthread++;
-  if(bstate.nthread < nthread) // 如果所有线程都到这里了
-  {
+  // 现在还有线程没有到这里,需要休息
+  while(bstate.nthread < nthread && bstate.round == round)
     pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);
-  }
-  else // 还有线程未到这里,所以需要等待
+  
+  if(bstate.nthread == nthread) // 最后一个到达的线程会执行这个
   {
-    bstate.round++; // 加一轮
-    bstate.nthread = 0; // 下一轮重新开始
-    /*
-     * pthread_cond_broadcast唤醒时会将所有线程唤醒
-     * 所有在pthread_cond_wait睡觉的线程都会被唤醒,然后去争抢锁
-     * 争抢到锁的继续执行,没有争抢到的类似于自旋,争抢到锁的执行完后会释放锁
-     */
-    pthread_cond_broadcast(&bstate.barrier_cond);
+    bstate.round++; // 所有线程都走到了这一轮,所以需要加一
+    bstate.nthread--; // 该线程出了这个位置,快要结束了
+    pthread_cond_broadcast(&bstate.barrier_cond); // 唤醒其他线程
   }
+  else // 线程在上面的while循环中被唤醒后,会走到这里
+  {
+    bstate.nthread--; // 该线程出了这个位置,快要结束了
+  }
+  
+  if(bstate.nthread == 0) // 所有线程都从while中苏醒了
+  {
+    round++; // 表示这一轮要结束了
+    pthread_cond_broadcast(&bstate.barrier_cond); // 唤醒其他线程
+  }
+  else
+  {
+    while (bstate.round != round) // 还有线程未苏醒,需要在这里等一下
+    {
+      pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);
+    }
+  }
+
   pthread_mutex_unlock(&bstate.barrier_mutex);
 }
 
