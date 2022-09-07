@@ -34,12 +34,14 @@ barrier()
   pthread_mutex_lock(&bstate.barrier_mutex);
   bstate.nthread++;
   // 现在还有线程没有到这里,需要休息
+  // bstate.round == round,如果不加这个条件,线程苏醒后再次判断while的条件,就会因为下面bstate.nthread--的缘故,导致又睡眠了
+  // bstate.round == round为真表示上一轮已经结束了
   while(bstate.nthread < nthread && bstate.round == round)
     pthread_cond_wait(&bstate.barrier_cond, &bstate.barrier_mutex);
   
   if(bstate.nthread == nthread) // 最后一个到达的线程会执行这个
   {
-    bstate.round++; // 所有线程都走到了这一轮,所以需要加一
+    bstate.round++; // 所有线程都走到了这一轮,所以需要加一,表示这一轮开始了
     bstate.nthread--; // 该线程出了这个位置,快要结束了
     pthread_cond_broadcast(&bstate.barrier_cond); // 唤醒其他线程
   }
