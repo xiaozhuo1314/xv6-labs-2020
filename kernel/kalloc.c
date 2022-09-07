@@ -35,13 +35,43 @@ kinit()
   freerange(end, (void*)PHYSTOP); // 这里是将所有的内存都给了0号cpu
 }
 
+void kfree_new(void *pa, int id)
+{
+  struct run *r;
+
+  if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
+    panic("kfree_new");
+
+  // Fill with junk to catch dangling refs.
+  memset(pa, 1, PGSIZE);
+
+  r = (struct run*)pa;
+
+  acquire(&kmems[id].lock); // 获得对应的空闲列表的锁
+  r->next = kmems[id].freelist;
+  kmems[id].freelist = r;
+  release(&kmems[id].lock); // 释放对应的空闲列表的锁
+}
+
 void
 freerange(void *pa_start, void *pa_end)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
-    kfree(p);
+  // for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  //   kfree(p);
+  uint64 gap = (pa_end - pa_start) / NCPU; // 每个cpu能够初始时拿到多少内存
+  gap = PGROUNDDOWN(gap); // 向下对齐
+  char *end_pa; // 每一个cpu能够初始时分配的内存的终止位置,这里进行初始化
+  for(int i = 0; i < NCPU; ++i)
+  {
+    if(i == NCPU - 1) // 最后一个cpu应该让其把剩下的全包了
+      end_pa = (char*)pa_end;
+    else // 不是最后一个cpu的话就设置其终止位置为起始位置+能够拿到的内存
+      end_pa = p + gap;
+    for(; p + PGSIZE <= end_pa; p += PGSIZE)
+      kfree_new(p, i);
+  }
 }
 
 // Free the page of physical memory pointed at by v,
