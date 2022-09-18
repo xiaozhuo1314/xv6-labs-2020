@@ -142,29 +142,26 @@ bget(uint dev, uint blockno)
     * 没有找到cache,需要LRU分配,分配策略为:
     * 从本桶中根据LRU算法寻找空buf
     */
-    if(bcache.buckets[idx].head != 0)
+    for(b = bcache.buckets[idx].head, cycle = 0; b != bcache.buckets[idx].head || cycle == 0; b = b->next, cycle++)
     {
-      for(b = bcache.buckets[idx].head, cycle = 0; b != bcache.buckets[idx].head || cycle == 0; b = b->next, cycle++)
-      {
-        if(b->refcnt == 0 && (res == 0 || b->lasttime < res->lasttime))
-          res = b;
-      }
-      // 在本桶中找到了
-      if(res)
-      {
-        res->blockno = blockno;
-        res->dev = dev;
-        res->valid = 0; // 数据还未从磁盘中读取
-        res->refcnt = 1;
-        // 这里不设置时间,否则会引起死锁
-        // acquire(&tickslock);
-        // b->lasttime = ticks;
-        // release(&tickslock);
+      if(b->refcnt == 0 && (res == 0 || b->lasttime < res->lasttime))
+        res = b;
+    }
+    // 在本桶中找到了
+    if(res)
+    {
+      res->blockno = blockno;
+      res->dev = dev;
+      res->valid = 0; // 数据还未从磁盘中读取
+      res->refcnt = 1;
+      // 这里不设置时间,否则会引起死锁
+      // acquire(&tickslock);
+      // b->lasttime = ticks;
+      // release(&tickslock);
 
-        release(&(bcache.buckets[idx].lock)); // 这里必须要首先释放再去获取桶的锁,否则可能会死锁
-        acquiresleep(&(res->lock));
-        return res;
-      }
+      release(&(bcache.buckets[idx].lock)); // 这里必须要首先释放再去获取桶的锁,否则可能会死锁
+      acquiresleep(&(res->lock));
+      return res;
     }
   }
 
