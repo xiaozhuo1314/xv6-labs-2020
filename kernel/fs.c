@@ -379,14 +379,14 @@ bmap(struct inode *ip, uint bn)
 {
   uint addr, *a;
   struct buf *bp;
-
+  // 如果所需块bn是属于直接块的
   if(bn < NDIRECT){
     if((addr = ip->addrs[bn]) == 0)
       ip->addrs[bn] = addr = balloc(ip->dev);
     return addr;
   }
   bn -= NDIRECT;
-
+  // 如果所需块bn是属于一级间接块的
   if(bn < NINDIRECT){
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0)
@@ -395,6 +395,42 @@ bmap(struct inode *ip, uint bn)
     a = (uint*)bp->data;
     if((addr = a[bn]) == 0){
       a[bn] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+    return addr;
+  }
+
+  bn -= NINDIRECT;
+  // 所属块属于二级间接块的
+  if(bn < NINDIRECT2)
+  {
+    // 如果在inode中的映射条目为空
+    if((addr = ip->addrs[NDIRECT + 1]) == 0)
+      ip->addrs[NDIRECT + 1] = addr = balloc(ip->dev);
+    
+    // 二级间接块在inode中的映射条目指向了一个磁盘块,里面存储了下一级映射的关系
+    bp = bread(ip->dev, addr);
+    // 存储映射关系的地方为bp->data,由于bp->data大小为一个block大小1024,而一个地址为4字节,所以只能存储256个地址,也就是256个条目
+    a = (uint *)bp->data;
+    // 找到一级映射中的索引和二级映射的索引
+    uint idx = bn / NINDIRECT; // 一级映射中的索引
+    // 如果在一级映射中映射条目为空
+    if((addr = a[idx]) == 0)
+    {
+      a[idx] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+    // 获取二级映射
+    bp = bread(ip->dev, addr);
+    // 获取映射关系条目数组的首地址
+    a = (uint *)bp->data;
+    // 如果在二级映射中映射条目为空
+    idx = bn % NINDIRECT; // 二级映射中的索引
+    if((addr = a[idx]) == 0)
+    {
+      a[idx] = addr = balloc(ip->dev);
       log_write(bp);
     }
     brelse(bp);
@@ -430,6 +466,37 @@ itrunc(struct inode *ip)
     brelse(bp);
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
+  }
+
+  struct buf *tmp;
+  uint *b;
+  if(ip->addrs[NDIRECT + 1]) // 二级间接映射
+  {
+    // 读取最高的inode中的条目
+    bp = bread(ip->dev, ip->addrs[NDIRECT + 1]);
+    a = (uint *)bp->data;
+    for(i = 0; i < NINDIRECT; i++) // 第一级映射中的条目遍历
+    {
+      if(a[i])
+      {
+        // 读取第二级映射
+        tmp = bread(ip->dev, a[i]);
+        b = (uint *)tmp->data;
+        for(j = 0; j < NINDIRECT; j++) // 第二级映射中的条目遍历
+        {
+          if(b[j])
+            bfree(ip->dev, b[j]); // 释放数据所在的块
+        }
+        // 释放第二级映射条目所在的块
+        brelse(tmp);
+        bfree(ip->dev, a[i]);
+        a[i] = 0; // 第一级映射中的关系设置为0
+      }
+    }
+    // 释放最终的inode的条目
+    brelse(bp);
+    bfree(ip->dev, ip->addrs[NDIRECT + 1]);
+    ip->addrs[NDIRECT + 1] = 0;
   }
 
   ip->size = 0;
