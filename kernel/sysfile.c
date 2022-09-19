@@ -16,6 +16,9 @@
 #include "file.h"
 #include "fcntl.h"
 
+// 跟随符号链接的最大深度
+#define MAXFOLLOWDEPTH 10
+
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
 static int
@@ -322,6 +325,43 @@ sys_open(void)
     return -1;
   }
 
+  // 判断是符号链接,若设置了O_NOFOLLOW则为打开符号链接,否则应该递归的去跟随符号链接
+  // 打开符号链接在下面的if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0)就是打开文件
+  // 所以这里不需要写一个else去打开符号链接文件了
+  if(ip->type == T_SYMLINK && omode != O_NOFOLLOW)
+  {
+    // 一直循环去跟随
+    for(int i = 0; i < MAXFOLLOWDEPTH; i++)
+    {
+      // 由于前面若文件为符号链接,则会获取锁,这里就不需要获取了,否则会死锁
+      if(readi(ip, 0, (uint64)path, 0, MAXPATH) <= 0) // 进入这边的ip一定是一个符号链接
+      {
+        iunlockput(ip);
+        end_op();
+        return -1;
+      }
+      iunlockput(ip); // 上一个inode已经使用完了
+      ip = namei(path); // 跟随符号链接到下一个
+      if(ip == 0)
+      {
+        end_op();
+        return -1;
+      }
+      ilock(ip); // 锁定
+      if(ip->type != T_SYMLINK)
+        break; // 这里不用解锁,因为后面会有iunlockput
+    }
+    // 从循环出来后仍然是符号链接,说明超过递归深度了,就返回错误
+    // 这里之前写在了if(ip->type == T_SYMLINK && omode != O_NOFOLLOW)之外,就会测试失败
+    // 因为所有的等于T_SYMLINK都返回-1了,而这个判断是针对符号链接的,所以应该在符号链接里面
+    if(ip->type == T_SYMLINK)
+    {
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+  }
+
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
       fileclose(f);
@@ -489,7 +529,60 @@ uint64
 sys_symlink(void)
 {
   // 获取系统调用参数
-  // 判断软链接是否存在,存在的话看一下里面的内容是否指向的是target,不是的话就返回-1,否则返回0
-  // 创建软链接文件,设置文件类型为软链接,并写入指向的内容,这个内容可以写在符号文件的inode中
-  return 0;
+  char target[MAXPATH], path[MAXPATH];
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+  
+  begin_op();
+  // 判断软链接是否存在,存在的话看一下是否是符号链接,以及里面的内容是否指向的是target,不是的话就返回-1,否则返回0
+  struct inode *ip = namei(path);
+  if(ip == 0) // 不存在
+  {
+    // 创建软链接文件,设置文件类型为软链接,并写入指向的内容
+    ip = create(path, T_SYMLINK, 0, 0); // create创建成功会拥有ip的锁,所以下面不能在获取锁了,创建失败则不会拥有锁
+    if(ip == 0)
+    {
+      end_op();
+      return -1;
+    }
+    if(writei(ip, 0, (uint64)target, 0, strlen(target)) != strlen(target))
+    {
+      iunlockput(ip); // 解锁后再将ip的引用计数减一
+      end_op();
+      return -1;
+    }
+    iunlockput(ip); // 解锁后再将ip的引用计数减一,这里因为创建软链接后就没用了,不需要在内存中保存了,所以减少引用数
+    end_op();
+    return 0;
+  }
+  else
+  {
+    ilock(ip);
+    // 文件存在,但不是符号链接,那么也就无法创建了
+    if(ip->type != T_SYMLINK)
+    {
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+    // 查看里面的内容
+    char tmp[MAXPATH];
+    int len = readi(ip, 0, (uint64)tmp, 0, strlen(target));
+    if(len <= 0)
+    {
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+    // 如果文件内容不相同那么就说明有一个同名的链接文件,所以就失败了
+    if(strncmp(target, tmp, len) != 0)
+    {
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+    iunlockput(ip);
+    end_op();
+    return 0;
+  }
 }
