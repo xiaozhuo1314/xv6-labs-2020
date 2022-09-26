@@ -484,3 +484,65 @@ sys_pipe(void)
   }
   return 0;
 }
+
+/*
+ * 将文件映射到内存
+ * 从当前进程内存大小sz处增大内存进行映射
+ */
+uint64
+sys_mmap(void)
+{
+  uint64 addr;
+  int len, prot, flags, fd, offset;
+  struct file *pf;
+  uint64 ret = 0xffffffffffffffff;
+  // 获取用户输入数据
+  if(argaddr(0, &addr) < 0 || 
+     argint(1, &len) < 0 || 
+     argint(2, &prot) || 
+     argint(3, &flags) || 
+     argfd(4, &fd, &pf) < 0 ||
+     argint(5, &offset) < 0 
+  )
+    return ret;
+  // 简化程序
+  if(addr != 0 || offset != 0 || len < 0)
+    return ret;
+  // 检查标志位,如果文件不可写,但是设置了文件修改要写回文件则报错
+  if(pf->writable == 0)
+  {
+    
+  }
+  struct proc *p = myproc();
+  // 判断是否加上映射长度后超过虚拟内存最大
+  if(p->sz + len >= MAXVA)
+    return ret;
+  // 应该像懒加载一样,直接增大虚拟内存即可
+  for(int i = 0; i < VMANUM; i++)
+  {
+    if(p->vma[i].used == 0) // 此处的vma结构体还未使用
+    {
+      // 添加文件引用计数
+      filedup(pf);
+      // 设置结构体
+      p->vma[i].used = 1;
+      p->vma[i].addr = p->sz;
+      p->vma[i].len = len;
+      p->vma[i].prot = prot;
+      p->vma[i].flags = flags;
+      p->vma[i].vfd = fd;
+      p->vma[i].vfile = pf;
+      p->vma[i].offset = offset;
+      // 设置进程
+      p->sz += len;
+      return p->vma[i].addr;
+    }
+  }
+  return ret;
+}
+
+uint64
+sys_munmap(void)
+{
+  return 0;
+}
