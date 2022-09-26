@@ -65,3 +65,8 @@
 //   TRAPFRAME (p->trapframe, used by the trampoline)
 //   TRAMPOLINE (the same page as in the kernel)
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)
+
+// VMA
+#define FREEVMANUM 16
+// 定义mmap最低映射地址
+#define MMAPMINADDR (TRAPFRAME - FREEVMANUM * PGSIZE)

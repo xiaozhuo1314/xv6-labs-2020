@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -428,4 +430,38 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+/* user add: 判断是否是lazy page */
+int is_lazypage(struct proc *p, uint64 va)
+{
+  if(va >= MAXVA)
+    return 0;
+  uint64 sp = PGROUNDUP(p->trapframe->sp) - 1;
+  if(va <= sp || va >= p->sz)
+    return 0;
+  pte_t *pte = walk(p->pagetable, va, 0); // 查找pte
+  if(pte == 0 || (*pte & PTE_V) == 0)
+    return 1;
+  else
+    return 0;
+}
+
+/* user add: 判断是否是mmap page */
+uint64 is_mmappage(struct proc *p, uint64 va)
+{
+  if(va >= MAXVA)
+    return 0;
+  va = PGROUNDDOWN(va);
+  for(int i = 0; i < VMANUM; i++)
+    if(p->vma[i].used == 1 && p->vma[i].addr == va)
+      return (uint64)(&(p->vma[i]));
+  return 0;
+}
+
+/* mmap处理函数 */
+int mmap_handler(struct vma_t *v, uint64 va, uint64 scause)
+{
+  // 判断是否是要写入文件中
+  return 0;
 }

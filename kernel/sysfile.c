@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "memlayout.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -495,7 +496,7 @@ sys_mmap(void)
   uint64 addr;
   int len, prot, flags, fd, offset;
   struct file *pf;
-  uint64 ret = 0xffffffffffffffff;
+  uint64 errcode = 0xffffffffffffffff;
   // 获取用户输入数据
   if(argaddr(0, &addr) < 0 || 
      argint(1, &len) < 0 || 
@@ -504,41 +505,58 @@ sys_mmap(void)
      argfd(4, &fd, &pf) < 0 ||
      argint(5, &offset) < 0 
   )
-    return ret;
-  // 简化程序
-  if(addr != 0 || offset != 0 || len < 0)
-    return ret;
+    return errcode;
+
+  if(offset < 0 || len < 0)
+    return errcode;
+
   // 检查标志位,如果文件不可写,但是设置了文件修改要写回文件则报错
-  if(pf->writable == 0)
-  {
-    
-  }
+  if(pf->writable == 0 && flags == MAP_SHARED && (prot & PROT_WRITE))
+    return errcode;
+
   struct proc *p = myproc();
-  // 判断是否加上映射长度后超过虚拟内存最大
-  if(p->sz + len >= MAXVA)
-    return ret;
-  // 应该像懒加载一样,直接增大虚拟内存即可
+  // 去每个进程的映射区域寻找位置
+  struct vma_t *v = 0;
   for(int i = 0; i < VMANUM; i++)
   {
-    if(p->vma[i].used == 0) // 此处的vma结构体还未使用
+    if(p->vma[i].used == 0)
     {
-      // 添加文件引用计数
-      filedup(pf);
-      // 设置结构体
-      p->vma[i].used = 1;
-      p->vma[i].addr = p->sz;
-      p->vma[i].len = len;
-      p->vma[i].prot = prot;
-      p->vma[i].flags = flags;
-      p->vma[i].vfd = fd;
-      p->vma[i].vfile = pf;
-      p->vma[i].offset = offset;
-      // 设置进程
-      p->sz += len;
-      return p->vma[i].addr;
+      // 由于xv6每个进程只有一个线程,因此这里访问p->vma是不需要加锁的
+      v = &(p->vma[i]);
+      break;
     }
   }
-  return ret;
+  if(v == 0)
+    return errcode;
+  // 开始分配,首先要去找内存位置
+  // 内存位置应该是未使用的从MMAPMINADDR到TRAPFRAME之间的一个页面
+  addr = 0;
+  for(uint64 i = MMAPMINADDR; i < TRAPFRAME; i += PGSIZE)
+  {
+    int used = 0;
+    for(int j = 0; j < VMANUM; j++)
+      if(p->vma[j].used == 1 && p->vma[j].addr == i)
+        used = 1;
+    if(used == 0)
+    {
+      addr = i;
+      break;
+    }
+  }
+  // 分配
+  if(addr + len >= TRAPFRAME)
+    return errcode;
+  v->used = 1;
+  v->addr = addr;
+  v->flags = flags;
+  v->len = len;
+  v->offset = offset;
+  v->prot = prot;
+  v->vfd = fd;
+  v->vfile = pf;
+  // 添加引用
+  filedup(pf);
+  return addr;
 }
 
 uint64
