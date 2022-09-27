@@ -73,20 +73,17 @@ usertrap(void)
     // page fault
     // 这里分为两类:lazy allocation、copy on write
     // 其中lazy allocation氛围普通的lazy allocation和mmap
+    // 虽然mmap属于懒加载,但是其映射区域固定在trapframe下面,所以就不能按照普通懒加载判断
     uint64 va = r_stval();
-    if(is_lazypage(p, va))
+    struct vma_t *v = (struct vma_t *)is_mmappage(p, va);
+    if(v) // mmap
     {
-      // 判断是否是mmap
-      struct vma_t *v = (struct vma_t *)is_mmappage(p, va);
-      if(v)
-      {
-        if(mmap_handler(v, PGROUNDDOWN(va), scause) == 0)
+      if(mmap_handler(v, va, scause) == 0)
           p->killed = 1;
-      }
-      else // 普通lazy allocation
-      {
+    }
+    else if(is_lazypage(p, va)) // 普通懒加载
+    {
 
-      }
     }
     else // 这里先不写cow
     {

@@ -7,6 +7,8 @@
 #include "fs.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "file.h"
+#include "fcntl.h"
 
 /*
  * the kernel's page table.
@@ -459,9 +461,37 @@ uint64 is_mmappage(struct proc *p, uint64 va)
   return 0;
 }
 
-/* mmap处理函数 */
+/* 
+ * mmap页面错误处理函数 
+ * v不是空白的,而是已经分配了虚拟内存
+ * va不要对齐
+ */
 int mmap_handler(struct vma_t *v, uint64 va, uint64 scause)
 {
-  // 判断是否是要写入文件中
+  if(v->used == 0)
+    return -1;
+  /* scause有12、13、15三种页面错误
+   * 12是指令页面错误,即指令不在页面中
+   * 13是读取页面时错误,也就是需要将文件内容读取到页面中,用户程序去读取该页面
+   * 15是往页面写入数据时错误,用户程序去修改该页面
+   */
+  // 如果用户程序想要读取内存页面,但是此时文件不允许读取,也就不允许将文件内容读取到页面中
+  if(scause == 13 && (v->vfile->readable == 0 || (v->prot & PROT_READ)))
+    return -1;
+  // 如果用户程序想要写入内存,但是内存不允许写入,或者需要将修改信息写回文件但是文件不允许写
+  if(scause == 15 && ((v->prot & PROT_WRITE) == 0 || (v->vfile->writable == 0 && v->flags == MAP_SHARED)))
+    return -1;
+
+  void *pa = kalloc();
+  if(pa == 0)
+    return -1;
+  memset(pa, 0, PGSIZE);
+  // 读取文件内容,首先要获取锁
+  ilock(v->vfile->ip);
+  // 读取文件内容
+  //readi(v->vfile->ip, 0, (uint64)pa, )
+  iunlock(v->vfile->ip);
+  
+  
   return 0;
 }

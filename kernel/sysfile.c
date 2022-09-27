@@ -507,7 +507,7 @@ sys_mmap(void)
   )
     return errcode;
 
-  if(offset < 0 || len < 0)
+  if(offset < 0 || len < 0 || offset % PGSIZE)
     return errcode;
 
   // 检查标志位,如果文件不可写,但是设置了文件修改要写回文件则报错
@@ -543,6 +543,8 @@ sys_mmap(void)
       break;
     }
   }
+  if(addr == 0)
+    return errcode;
   // 分配
   if(addr + len >= TRAPFRAME)
     return errcode;
