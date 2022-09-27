@@ -496,7 +496,6 @@ sys_mmap(void)
   uint64 addr;
   int len, prot, flags, fd, offset;
   struct file *pf;
-  uint64 errcode = 0xffffffffffffffff;
   // 获取用户输入数据
   if(argaddr(0, &addr) < 0 || 
      argint(1, &len) < 0 || 
@@ -505,14 +504,14 @@ sys_mmap(void)
      argfd(4, &fd, &pf) < 0 ||
      argint(5, &offset) < 0 
   )
-    return errcode;
+    return -1;
 
   if(offset < 0 || len < 0)
-    return errcode;
+    return -1;
 
   // 检查标志位,如果文件不可写,但是设置了文件修改要写回文件则报错
   if(pf->writable == 0 && flags == MAP_SHARED && (prot & PROT_WRITE))
-    return errcode;
+    return -1;
 
   struct proc *p = myproc();
   // 去进程的映射区域寻找位置
@@ -527,7 +526,7 @@ sys_mmap(void)
     }
   }
   if(v == 0)
-    return errcode;
+    return -1;
   // 开始分配,首先要去找内存位置
   // 内存位置应该是未使用的从MMAPMINADDR到TRAPFRAME之间的一个页面
   addr = 0;
@@ -549,10 +548,10 @@ sys_mmap(void)
     }
   }
   if(addr == 0)
-    return errcode;
+    return -1;
   // 分配
   if(addr + len >= TRAPFRAME)
-    return errcode;
+    return -1;
   v->used = 1;
   v->addr = addr;
   v->flags = flags;
