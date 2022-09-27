@@ -78,14 +78,10 @@ usertrap(void)
     struct vma_t *v = (struct vma_t *)is_mmappage(p, va);
     if(v) // mmap
     {
-      if(mmap_handler(v, va, scause) == 0)
+      if(mmap_handler(v, va, scause) < 0)
           p->killed = 1;
     }
-    else if(is_lazypage(p, va)) // 普通懒加载
-    {
-
-    }
-    else // 这里先不写cow
+    else // 这里先不写cow和普通懒加载
     {
       p->killed = 1;
     }

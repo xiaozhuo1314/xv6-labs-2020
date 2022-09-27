@@ -7,6 +7,7 @@
 #include "fs.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
 
@@ -454,9 +455,8 @@ uint64 is_mmappage(struct proc *p, uint64 va)
 {
   if(va >= MAXVA)
     return 0;
-  va = PGROUNDDOWN(va);
   for(int i = 0; i < VMANUM; i++)
-    if(p->vma[i].used == 1 && p->vma[i].addr == va)
+    if(p->vma[i].used == 1 && va >= p->vma[i].addr && va < p->vma[i].addr + p->vma[i].len)
       return (uint64)(&(p->vma[i]));
   return 0;
 }
@@ -476,7 +476,7 @@ int mmap_handler(struct vma_t *v, uint64 va, uint64 scause)
    * 15是往页面写入数据时错误,用户程序去修改该页面
    */
   // 如果用户程序想要读取内存页面,但是此时文件不允许读取,也就不允许将文件内容读取到页面中
-  if(scause == 13 && (v->vfile->readable == 0 || (v->prot & PROT_READ)))
+  if(scause == 13 && (v->vfile->readable == 0 || (v->prot & PROT_READ) == 0))
     return -1;
   // 如果用户程序想要写入内存,但是内存不允许写入,或者需要将修改信息写回文件但是文件不允许写
   if(scause == 15 && ((v->prot & PROT_WRITE) == 0 || (v->vfile->writable == 0 && v->flags == MAP_SHARED)))
@@ -488,10 +488,32 @@ int mmap_handler(struct vma_t *v, uint64 va, uint64 scause)
   memset(pa, 0, PGSIZE);
   // 读取文件内容,首先要获取锁
   ilock(v->vfile->ip);
-  // 读取文件内容
-  //readi(v->vfile->ip, 0, (uint64)pa, )
+  /* 读取文件内容
+   * mmap时将文件从offset开始映射到addr
+   * 也就是说offset <--> addr
+   * 那么存在等式va - addr = pos - offset
+   * 所以pos = offset + va - addr
+   */
+  if(readi(v->vfile->ip, 0, (uint64)pa, PGROUNDDOWN(v->offset + va - v->addr), PGSIZE) == 0)
+  {
+    iunlock(v->vfile->ip);
+    kfree(pa);
+    return -1;
+  }
   iunlock(v->vfile->ip);
-  
-  
+  // 读取成功后应该进行映射
+  int perm = PTE_U;
+  if(v->prot & PROT_READ)
+    perm |= PTE_R;
+  if(v->prot & PROT_WRITE)
+    perm |= (PTE_W | PTE_D);
+  if(v->prot & PROT_EXEC)
+    perm |= PTE_X;
+
+  if(mappages(myproc()->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)pa, perm) < 0)
+  {
+    kfree(pa);
+    return -1;
+  }
   return 0;
 }

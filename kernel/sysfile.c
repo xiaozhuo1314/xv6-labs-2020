@@ -507,7 +507,7 @@ sys_mmap(void)
   )
     return errcode;
 
-  if(offset < 0 || len < 0 || offset % PGSIZE)
+  if(offset < 0 || len < 0)
     return errcode;
 
   // 检查标志位,如果文件不可写,但是设置了文件修改要写回文件则报错
@@ -515,7 +515,7 @@ sys_mmap(void)
     return errcode;
 
   struct proc *p = myproc();
-  // 去每个进程的映射区域寻找位置
+  // 去进程的映射区域寻找位置
   struct vma_t *v = 0;
   for(int i = 0; i < VMANUM; i++)
   {
@@ -535,8 +535,13 @@ sys_mmap(void)
   {
     int used = 0;
     for(int j = 0; j < VMANUM; j++)
+    {
       if(p->vma[j].used == 1 && p->vma[j].addr == i)
+      {
         used = 1;
+        break;
+      }
+    }
     if(used == 0)
     {
       addr = i;
@@ -564,5 +569,67 @@ sys_mmap(void)
 uint64
 sys_munmap(void)
 {
+  uint64 addr;
+  int len;
+  if(argaddr(0, &addr) < 0 || argint(1, &len) < 0)
+    return -1;
+  if(len == 0) // 不去卸载
+    return 0;
+  // 寻找vma
+  struct proc *p = myproc();
+  struct vma_t *v = 0;
+  for(int i = 0; i < VMANUM; i++)
+  {
+    if(p->vma[i].addr <= addr && addr < p->vma[i].addr + p->vma[i].len && p->vma[i].used)
+    {
+      v = &(p->vma[i]);
+      break;
+    }
+  }
+  // 未找到
+  if(v == 0)
+    return -1;
+  // 找到了就开始进行以下操作
+  // 脏页写入
+  if(v->flags & MAP_SHARED)
+  {
+    uint64 end = addr + len;
+    if(end > v->addr + v->len)
+      end = v->addr + v->len;
+    end = PGROUNDDOWN(end);
+    for(uint64 i = PGROUNDUP(addr); i < end; i += PGSIZE)
+    {
+      // 查看是否时脏页
+      pte_t *pte = walk(p->pagetable, i, 0);
+      if(pte == 0)
+        continue;
+      if(*pte & PTE_D) // 是脏页,要写入
+        filewrite(v->vfile, i, PGSIZE);
+    }
+  }
+  // 取消映射
+  // uvmunmap(p->pagetable, PGROUNDUP(addr), (end - ))
+  // 更新vma
+  if(v->addr == addr)
+  {
+    if(len >= v->len) // 整个都被卸载
+    {
+      // 由于整个被卸载了,还需要关闭文件
+      fileclose(v->vfile);
+      memset((void *)v, 0, sizeof(struct vma_t));
+    }
+    else
+    {
+      v->addr = addr + len;
+      v->len -= len;
+    }
+  }
+  else
+  {
+    if(len >= v->addr + v->len - addr) // 卸载的多了
+      v->len = addr - v->addr;
+    else
+      return -1; // 造成空洞了
+  }
   return 0;
 }

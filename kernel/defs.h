@@ -175,6 +175,7 @@ int             copyinstr(pagetable_t, char *, uint64, uint64);
 int             is_lazypage(struct proc *, uint64); // user add
 uint64          is_mmappage(struct proc *, uint64); // user add
 int             mmap_handler(struct vma_t *, uint64, uint64); // user add
+pte_t *         walk(pagetable_t, uint64, int); // user add
 
 // plic.c
 void            plicinit(void);
