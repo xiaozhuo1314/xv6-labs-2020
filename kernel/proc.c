@@ -301,6 +301,17 @@ fork(void)
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 
+  // 把mmap的映射也复制
+  for(int i = 0; i < VMANUM; i++)
+  {
+    if(p->vma[i].used)
+    {
+      memmove(&(np->vma[i]), &(p->vma[i]), sizeof(struct vma_t));
+      // 文件引用添加
+      filedup(p->vma[i].vfile);
+    }
+  }
+
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;

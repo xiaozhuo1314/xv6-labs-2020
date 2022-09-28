@@ -505,8 +505,11 @@ sys_mmap(void)
      argint(5, &offset) < 0 
   )
     return -1;
+  
+  if(flags != MAP_SHARED && flags != MAP_PRIVATE)
+    return -1;
 
-  if(offset < 0 || len < 0)
+  if(offset < 0 || len < 0 || offset % PGSIZE)
     return -1;
 
   // 检查标志位,如果文件不可写,但是设置了文件修改要写回文件则报错
