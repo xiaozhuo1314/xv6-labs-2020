@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
 
 struct cpu cpus[NCPU];
 
@@ -354,6 +355,36 @@ exit(int status)
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
+    }
+  }
+
+  // 关闭所有mmap映射区域
+  struct vma_t *v;
+  for(int i = 0; i < VMANUM; i++)
+  {
+    if(p->vma[i].used) // 有映射,需要取消映射
+    {
+      v = &(p->vma[i]);
+      // 写入脏页
+      if(v->flags & MAP_SHARED)
+      {
+        pte_t *pte;
+        // 遍历所有虚拟内存,所过pte有Dirty标志就写入
+        for(uint64 va = v->addr; va < v->addr + v->len; va += PGSIZE)
+        {
+          pte = walk(p->pagetable, va, 0);
+          if(pte == 0)
+            continue;
+          if(*pte & PTE_D)
+            filewrite(v->vfile, va, PGSIZE);
+        }
+      }
+      // 取消映射
+      uvmunmap(p->pagetable, v->addr, v->len / PGSIZE, 1);
+      // 关闭文件
+      fileclose(v->vfile);
+      // 设置为vma区域空
+      memset((void *)v, 0, sizeof(struct vma_t));
     }
   }
 

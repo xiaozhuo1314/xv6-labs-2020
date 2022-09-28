@@ -589,6 +589,9 @@ sys_munmap(void)
   if(v == 0)
     return -1;
   // 找到了就开始进行以下操作
+  // 判断是否是会造成空洞
+  if(addr > v->addr && addr + len < v->addr + v->len)
+    return -1;
   // 脏页写入
   if(v->flags & MAP_SHARED)
   {
@@ -607,7 +610,7 @@ sys_munmap(void)
     }
   }
   // 取消映射
-  // uvmunmap(p->pagetable, PGROUNDUP(addr), (end - ))
+  uvmunmap(p->pagetable, PGROUNDUP(addr), (PGROUNDDOWN(addr + len) - PGROUNDUP(addr)) / PGSIZE, 1);
   // 更新vma
   if(v->addr == addr)
   {
@@ -625,10 +628,7 @@ sys_munmap(void)
   }
   else
   {
-    if(len >= v->addr + v->len - addr) // 卸载的多了
-      v->len = addr - v->addr;
-    else
-      return -1; // 造成空洞了
+    v->len = addr - v->addr;
   }
   return 0;
 }
