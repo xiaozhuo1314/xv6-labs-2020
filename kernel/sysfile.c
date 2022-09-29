@@ -505,11 +505,8 @@ sys_mmap(void)
      argint(5, &offset) < 0 
   )
     return -1;
-  
-  if(flags != MAP_SHARED && flags != MAP_PRIVATE)
-    return -1;
 
-  if(offset < 0 || len < 0 || offset % PGSIZE)
+  if(offset < 0 || len < 0)
     return -1;
 
   // 检查标志位,如果文件不可写,但是设置了文件修改要写回文件则报错
@@ -531,30 +528,13 @@ sys_mmap(void)
   if(v == 0)
     return -1;
   // 开始分配,首先要去找内存位置
-  // 内存位置应该是未使用的从MMAPMINADDR到TRAPFRAME之间的一个页面
-  addr = 0;
-  for(uint64 i = MMAPMINADDR; i < TRAPFRAME; i += PGSIZE)
-  {
-    int used = 0;
-    for(int j = 0; j < VMANUM; j++)
-    {
-      if(p->vma[j].used == 1 && p->vma[j].addr == i)
-      {
-        used = 1;
-        break;
-      }
-    }
-    if(used == 0)
-    {
-      addr = i;
-      break;
-    }
-  }
-  if(addr == 0)
-    return -1;
-  // 分配
-  if(addr + len >= TRAPFRAME)
-    return -1;
+  // 原来的做法if(p->vma[j].used == 1 && p->vma[j].addr == i)是不对的,因为这样找出来的addr只能保证addr -> addr+PGSIZE是空闲的
+  // 不能保证addr -> addr+len是空闲的
+  // 所以在mmaptest中的fork_test时会有原本读到A的位置读到0,这是因为读到别的mmap区域去了
+  // 当然现在这样写也有一些问题,就是如果在mmap_addr到TRAPFRAME之间有映射区域释放了,那么就会产生映射区间的空洞,而下一次映射的时候
+  // 如果这个空洞正好能够满足下一次映射长度的话,最好是映射到这里,目前的做法还是mmap_addr继续向下生长,不管空洞
+  addr = PGROUNDDOWN(p->mmap_addr - len);
+  p->mmap_addr = addr;
   v->used = 1;
   v->addr = addr;
   v->flags = flags;
@@ -615,6 +595,12 @@ sys_munmap(void)
   // 取消映射
   uvmunmap(p->pagetable, PGROUNDUP(addr), (PGROUNDDOWN(addr + len) - PGROUNDUP(addr)) / PGSIZE, 1);
   // 更新vma
+  if(addr == p->mmap_addr) // 说明取消映射的地方是当时所有mmap映射区域最小的,此时应该增大p->mmap_addr以后面的复用
+  {
+    if(len > v->len)
+      len = v->len;
+    p->mmap_addr = PGROUNDDOWN(addr + len);
+  }
   if(v->addr == addr)
   {
     if(len >= v->len) // 整个都被卸载

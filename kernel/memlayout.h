@@ -66,7 +66,5 @@
 //   TRAMPOLINE (the same page as in the kernel)
 #define TRAPFRAME (TRAMPOLINE - PGSIZE)
 
-// VMA
-#define FREEVMANUM 16
-// 定义mmap最低映射地址
-#define MMAPMINADDR (TRAPFRAME - FREEVMANUM * PGSIZE)
+// 定义mmap初始映射地址,采用从上往下的方式进行映射
+#define MMAPMAXADDR TRAPFRAME

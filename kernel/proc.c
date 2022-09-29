@@ -138,7 +138,7 @@ found:
   // 将vma数组设置为0
   for(int i = 0; i < VMANUM; i++)
     memset(&(p->vma[i]), 0, sizeof(struct vma_t));
-
+  p->mmap_addr = MMAPMAXADDR; // 设置mmap初始位置
   return p;
 }
 

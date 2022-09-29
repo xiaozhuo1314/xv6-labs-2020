@@ -117,5 +117,6 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
 
+  uint64 mmap_addr; // 当前时刻进程已经mmap了的虚拟内存页的最小地址,由于mmap高地址往低地址生长,那么新的mmap内存页需要在mmap_addr - PGSIZE开始
   struct vma_t vma[VMANUM];    // vma区域的数组
 };
