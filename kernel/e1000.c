@@ -102,7 +102,41 @@ e1000_transmit(struct mbuf *m)
   // the TX descriptor ring so that the e1000 sends it. Stash
   // a pointer so that it can be freed after sending.
   //
-  
+
+  //获取锁
+  acquire(&e1000_lock);
+  // 读取E1000_TDT控制寄存器，向E1000询问等待下一个数据包的TX环索引
+  uint32 idx = regs[E1000_TDT];
+  // 检查环是否溢出
+  if(idx >= TX_RING_SIZE)
+  {
+    release(&e1000_lock);
+    return -1;
+  }
+  // 如果E1000_TXD_STAT_DD未在E1000_TDT索引的描述符中设置，则E1000尚未完成先前相应的传输请求，因此返回错误
+  struct tx_desc *desc = &tx_ring[idx];
+  if(desc == 0 || (desc->status & E1000_TXD_STAT_DD) == 0)
+  {
+    release(&e1000_lock);
+    return -1;
+  }
+  // 释放从该描述符传输的最后一个mbuf,由于packet可能超过一个mbuf,所以需要循环
+  struct mbuf *b = tx_mbufs[idx];
+  struct mbuf *tmp;
+  for(; b; b = tmp)
+  {
+    tmp = b->next;
+    mbuffree(b);
+  }
+  // 填写描述符。m->head指向内存中数据包的内容，m->len是数据包的长度。设置必要的cmd标志，并保存指向mbuf的指针，以便稍后释放
+  desc->addr = (uint64)m->head;
+  desc->length = m->len;
+  desc->cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
+  tx_mbufs[idx] = m;
+  // 通过将一加到E1000_TDT再对TX_RING_SIZE取模来更新环位置
+  regs[E1000_TDT] = (idx + 1) % TX_RING_SIZE;
+  // 释放锁
+  release(&e1000_lock);
   return 0;
 }
 
@@ -115,6 +149,44 @@ e1000_recv(void)
   // Check for packets that have arrived from the e1000
   // Create and deliver an mbuf for each packet (using net_rx()).
   //
+
+  uint32 idx;
+  struct rx_desc *desc;
+  struct mbuf *m, *b;
+  // 由于可能会到来多个,所以需要循环
+  while(1)
+  {
+    //获取锁
+    acquire(&e1000_lock);
+    //首先通过提取E1000_RDT控制寄存器加一并对RX_RING_SIZE取模，向E1000询问下一个等待接收数据包（如果有）所在的环索引
+    idx = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
+    // 然后通过检查描述符status部分中的E1000_RXD_STAT_DD位来检查新数据包是否可用。如果不可用，请停止
+    desc = &rx_ring[idx];
+    if(desc == 0 || (desc->status & E1000_RXD_STAT_DD) == 0)
+    {
+      release(&e1000_lock);
+      break;
+    }
+
+    // 将mbuf的m->len更新为描述符中报告的长度。
+    m = rx_mbufs[idx];
+    mbufput(m, desc->length);
+    
+    // 使用mbufalloc()分配一个新的mbuf，以替换刚刚给net_rx()的mbuf,将其数据指针（m->head）编程到描述符中。将描述符的状态位清除为零
+    b = mbufalloc(0);
+    if(b == 0)
+      panic("e1000_recv mbufalloc failed");
+    rx_mbufs[idx] = b;
+    desc->addr = (uint64)b->head;
+    desc->status = 0;
+
+    // 将E1000_RDT寄存器更新为最后处理的环描述符的索引
+    regs[E1000_RDT] = idx;
+    release(&e1000_lock); // 必须要在net_rx前面,否则会死锁,因为net_rx函数中调用的其它函数会调用e1000_transmit函数,这样就导致了死锁
+
+    // 使用net_rx()将mbuf传送到网络栈
+    net_rx(m);
+  }
 }
 
 void
@@ -124,6 +196,5 @@ e1000_intr(void)
   // without this the e1000 won't raise any
   // further interrupts.
   regs[E1000_ICR] = 0xffffffff;
-
   e1000_recv();
 }
