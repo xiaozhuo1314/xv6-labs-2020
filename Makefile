@@ -64,7 +64,8 @@ OBJS += \
 	$K/e1000.o \
 	$K/net.o \
 	$K/sysnet.o \
-	$K/pci.o
+	$K/pci.o \
+	$K/debug.o
 endif
 
 
@@ -98,7 +99,7 @@ CFLAGS = -Wall -Werror -O -fno-omit-frame-pointer -ggdb
 
 ifdef LAB
 LABUPPER = $(shell echo $(LAB) | tr a-z A-Z)
-XCFLAGS += -DSOL_$(LABUPPER) -DLAB_$(LABUPPER)
+XCFLAGS += -DSOL_$(LABUPPER) -DLAB_$(LABUPPER) -DCONFIG_DEBUG # debug模式
 endif
 
 CFLAGS += $(XCFLAGS)
@@ -292,12 +293,15 @@ endif
 
 FWDPORT = $(shell expr `id -u` % 5000 + 25999)
 
+# tcp port
+TCPPORT = 8888
+
 QEMUOPTS = -machine virt -bios none -kernel $K/kernel -m 128M -smp $(CPUS) -nographic
 QEMUOPTS += -drive file=fs.img,if=none,format=raw,id=x0
 QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
 
 ifeq ($(LAB),net)
-QEMUOPTS += -netdev user,id=net0,hostfwd=udp::$(FWDPORT)-:2000 -object filter-dump,id=net0,netdev=net0,file=packets.pcap
+QEMUOPTS += -netdev user,id=net0,hostfwd=udp::$(FWDPORT)-:2000,hostfwd=tcp::$(TCPPORT)-:$(TCPPORT) -object filter-dump,id=net0,netdev=net0,file=packets.pcap
 QEMUOPTS += -device e1000,netdev=net0,bus=pcie.0
 endif
 

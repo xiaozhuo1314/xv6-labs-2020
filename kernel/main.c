@@ -31,10 +31,10 @@ main()
     iinit();         // inode cache
     fileinit();      // file table
     virtio_disk_init(); // emulated hard disk
-#ifdef LAB_NET
+//#ifdef LAB_NET
     pci_init();
     sockinit();
-#endif    
+//#endif    
     userinit();      // first user process
 #ifdef KCSAN
     kcsaninit();

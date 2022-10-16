@@ -7,6 +7,7 @@
 #include "defs.h"
 #include "e1000_dev.h"
 #include "net.h"
+#include "debug.h"
 
 #define TX_RING_SIZE 16
 static struct tx_desc tx_ring[TX_RING_SIZE] __attribute__((aligned(16)));
@@ -103,6 +104,11 @@ e1000_transmit(struct mbuf *m)
   // a pointer so that it can be freed after sending.
   //
 
+  // 打印debug
+#ifdef CONFIG_DEBUG
+  eth_dbg("[e1000] %d len data transmit\n", m->len);
+#endif
+
   //获取锁
   acquire(&e1000_lock);
   // 读取E1000_TDT控制寄存器，向E1000询问等待下一个数据包的TX环索引
@@ -184,6 +190,11 @@ e1000_recv(void)
     regs[E1000_RDT] = idx;
     release(&e1000_lock); // 必须要在net_rx前面,否则会死锁,因为net_rx函数中调用的其它函数会调用e1000_transmit函数,这样就导致了死锁
 
+  // 打印debug
+#ifdef CONFIG_DEBUG
+    eth_dbg("[e1000] %d len data received\n", m->len);
+#endif
+    
     // 使用net_rx()将mbuf传送到网络栈
     net_rx(m);
   }
