@@ -108,5 +108,7 @@ int snprintf(char *buf, int size, char *fmt, ...)
         if(ret > 0)
             len += ret;
     }
+    va_end(ap);
+    buf[len] = 0;
     return len;
 }

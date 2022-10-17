@@ -10,6 +10,7 @@
 #include "proc.h"
 #include "net.h"
 #include "defs.h"
+#include "debug.h" // user add
 
 static uint32 local_ip = MAKE_IP_ADDR(10, 0, 2, 15); // qemu's idea of the guest IP
 static uint8 local_mac[ETHADDR_LEN] = { 0x52, 0x54, 0x00, 0x12, 0x34, 0x56 };
@@ -283,6 +284,13 @@ done:
 
 // receives a UDP packet
 static void
+net_rx_tcp(struct mbuf *m, uint16 len, struct ip *iphdr)
+{
+
+}
+
+// receives a UDP packet
+static void
 net_rx_udp(struct mbuf *m, uint16 len, struct ip *iphdr)
 {
   struct udp *udphdr;
@@ -327,6 +335,10 @@ net_rx_ip(struct mbuf *m)
   if (!iphdr)
 	  goto fail;
 
+#ifdef CONFIG_DEBUG
+  ipdump(iphdr, m);
+#endif
+
   // check IP version and header len
   if (iphdr->ip_vhl != ((4 << 4) | (20 >> 2)))
     goto fail;
@@ -339,12 +351,16 @@ net_rx_ip(struct mbuf *m)
   // is the packet addressed to us?
   if (htonl(iphdr->ip_dst) != local_ip)
     goto fail;
-  // can only support UDP
-  if (iphdr->ip_p != IPPROTO_UDP)
+  
+  len = ntohs(iphdr->ip_len) - sizeof(*iphdr);
+  // support UDP and TCP
+  if (iphdr->ip_p == IPPROTO_UDP)
+    net_rx_udp(m, len, iphdr);
+  else if(iphdr->ip_p == IPPROTO_TCP)
+    net_rx_tcp(m, len, iphdr);
+  else
     goto fail;
 
-  len = ntohs(iphdr->ip_len) - sizeof(*iphdr);
-  net_rx_udp(m, len, iphdr);
   return;
 
 fail:
@@ -371,4 +387,39 @@ void net_rx(struct mbuf *m)
     net_rx_arp(m);
   else
     mbuffree(m);
+}
+
+/* uint32位的ip地址转换为十进制点分制 */
+char *ip2host(uint32 ip, char *dst, uint sz)
+{
+  memset((void *)dst, 0, sz);
+  uint8 *p = (uint8 *)&ip;
+  snprintf(dst, sz, "%d.%d.%d.%d", p[0], p[1], p[2], p[3]);
+  return dst;
+}
+
+/* ip信息打印 */
+void ipdump(struct ip *iphdr, struct mbuf *m)
+{
+  ip_dbg("ip\n");
+  ip_dbg("version: %d, header length: %d\n", (iphdr->ip_vhl & 0xf0) >> 4, (iphdr->ip_vhl & 0x0f) << 2); // 单位是4字节
+  ip_dbg("type of service: 0x%x\n", iphdr->ip_tos);
+  ip_dbg("total length: %d\n", ntohs(iphdr->ip_len));
+  ip_dbg("identification: 0x%x\n", ntohs(iphdr->ip_id));
+  ip_dbg("flags: 0x%x, offset: 0x%x\n", (iphdr->ip_off & 0xe000) >> 13, iphdr->ip_off & 0x1fff);
+  ip_dbg("time to live: %d\n", iphdr->ip_ttl);
+  if(iphdr->ip_p == IPPROTO_ICMP)
+    ip_dbg("protocol: ICMP\n");
+  else if(iphdr->ip_p == IPPROTO_TCP)
+    ip_dbg("protocol: TCP\n");
+  else if(iphdr->ip_p == IPPROTO_UDP)
+    ip_dbg("protocol: UDP\n");
+  else
+    ip_dbg("unknown protocol: %d\n", iphdr->ip_p);
+  ip_dbg("checksum: 0x%x\n", ntohs(iphdr->ip_sum));
+  char ip_addr[IPSTR_LEN];
+  ip_dbg("source addr: %s\n", ip2host(iphdr->ip_src, ip_addr, IPSTR_LEN));
+  ip_dbg("destination addr: %s\n", ip2host(iphdr->ip_dst, ip_addr, IPSTR_LEN));
+
+  hexdump((void *)m, m->len);
 }

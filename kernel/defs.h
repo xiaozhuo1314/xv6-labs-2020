@@ -11,6 +11,7 @@ struct superblock;
 //#ifdef LAB_NET
 struct mbuf;
 struct sock;
+struct ip;
 //#endif
 
 // bio.c
@@ -235,3 +236,6 @@ int             sockread(struct sock *, uint64, int);
 int             sockwrite(struct sock *, uint64, int);
 void            sockrecvudp(struct mbuf*, uint32, uint16, uint16);
 //#endif
+
+void            hexdump(void *, uint); // user add
+void            ipdump(struct ip *, struct mbuf *); // user add

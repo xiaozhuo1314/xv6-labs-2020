@@ -74,7 +74,8 @@ static inline uint32 bswapl(uint32 val)
 // useful networking headers
 //
 
-#define ETHADDR_LEN 6
+#define ETHADDR_LEN 6 // 6个字节
+#define IPSTR_LEN 16 // 点分十进制长度最多为16个字符
 
 // an Ethernet packet header (start of the packet).
 struct eth {
