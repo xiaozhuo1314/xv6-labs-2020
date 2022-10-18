@@ -286,7 +286,26 @@ done:
 static void
 net_rx_tcp(struct mbuf *m, uint16 len, struct ip *iphdr)
 {
+  struct tcp *tcphdr;
+  tcphdr = mbufpullhdr(m, *tcphdr);
+  if(!tcphdr)
+    goto fail;
+  
+#ifdef CONFIG_DEBUG
+  tcpdump(tcphdr, m);
+#endif
+  
+  // 判断长度,若过长则将m->len和m->head指向tcp数据部分的长度和起始位置
+  // mbufpullhdr会将此时的m->head向后走struct tcp字节,恰好越过了tcp固定头部部分,但是tcp头部可能还会有变长部分,也得越过
+  if(tcphdr->doff > TCP_MIN_DATA_OFF) // 头部长度超过20字节了
+  {
+    // 为了使m->head指向数据部分,则还得使其往后走,越过tcp头部的变长部分
+    m->head += (tcphdr->doff - TCP_MIN_DATA_OFF) * 4;
+    m->len -= (tcphdr->doff - TCP_MIN_DATA_OFF) * 4;
+  }
 
+fail:
+  mbuffree(m);
 }
 
 // receives a UDP packet
@@ -406,7 +425,7 @@ void ipdump(struct ip *iphdr, struct mbuf *m)
   ip_dbg("type of service: 0x%x\n", iphdr->ip_tos);
   ip_dbg("total length: %d\n", ntohs(iphdr->ip_len));
   ip_dbg("identification: 0x%x\n", ntohs(iphdr->ip_id));
-  ip_dbg("flags: 0x%x, offset: 0x%x\n", (iphdr->ip_off & 0xe000) >> 13, iphdr->ip_off & 0x1fff);
+  ip_dbg("flags: 0x%x, offset: 0x%x\n", (iphdr->ip_off & 0xe0) >> 5, ntohs(iphdr->ip_off) & 0x1fff);
   ip_dbg("time to live: %d\n", iphdr->ip_ttl);
   if(iphdr->ip_p == IPPROTO_ICMP)
     ip_dbg("protocol: ICMP\n");
@@ -421,5 +440,24 @@ void ipdump(struct ip *iphdr, struct mbuf *m)
   ip_dbg("source addr: %s\n", ip2host(iphdr->ip_src, ip_addr, IPSTR_LEN));
   ip_dbg("destination addr: %s\n", ip2host(iphdr->ip_dst, ip_addr, IPSTR_LEN));
 
-  hexdump((void *)m, m->len);
+  hexdump((void *)m->head, m->len); // 打印ip数据部分
+}
+
+/* tcp信息打印 */
+void tcpdump(struct tcp *tcphdr, struct mbuf *m)
+{
+  tcp_dbg("tcp\n");
+  tcp_dbg("src port: %d\n", ntohs(tcphdr->sport));
+  tcp_dbg("dst port: %d\n", ntohs(tcphdr->dport));
+  tcp_dbg("seq: %d\n", ntohl(tcphdr->seq));
+  tcp_dbg("ack number: %d\n", ntohl(tcphdr->acknum));
+  tcp_dbg("data offset: %d, reserved: 0x%x\n", tcphdr->doff, tcphdr->reserved);
+  tcp_dbg("FIN: %d, SYN: %d, RST: %d, PSH: %d, ACK: %d, URG: %d, ECE: %d, CWR: %d\n",
+          tcphdr->fin, tcphdr->syn, tcphdr->rst, tcphdr->psh, tcphdr->urg, tcphdr->ece, tcphdr->cwr);
+  tcp_dbg("window size: %d\n", ntohs(tcphdr->winsize));
+  tcp_dbg("checksum: 0x%x\n", ntohs(tcphdr->checksum));
+  tcp_dbg("urgptr: 0x%x\n", ntohs(tcphdr->urgptr));
+
+  tcp_dbg("tcp data len: %d\n", m->len); // 由于拿出了tcp头部,此时m中的head指向了tcp数据部分的开始位置
+  hexdump((void *)m->head, m->len); // 打印tcp数据部分
 }

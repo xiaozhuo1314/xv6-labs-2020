@@ -12,6 +12,7 @@ struct superblock;
 struct mbuf;
 struct sock;
 struct ip;
+struct tcp;
 //#endif
 
 // bio.c
@@ -85,6 +86,7 @@ int             pipewrite(struct pipe*, uint64, int);
 void            printf(char*, ...);
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
+int             snprintf(char*, int, char*, ...); // user add
 
 // proc.c
 int             cpuid(void);
@@ -208,9 +210,6 @@ int             copyinstr_new(pagetable_t, char *, uint64, uint64);
 void            statsinit(void);
 void            statsinc(void);
 
-// sprintf.c
-int             snprintf(char*, int, char*, ...);
-
 #ifdef KCSAN
 void            kcsaninit();
 #endif
@@ -227,6 +226,8 @@ int             e1000_transmit(struct mbuf*);
 // net.c
 void            net_rx(struct mbuf*);
 void            net_tx_udp(struct mbuf*, uint32, uint16, uint16);
+void            ipdump(struct ip *, struct mbuf *); // user add
+void            tcpdump(struct tcp *, struct mbuf *); // user add
 
 // sysnet.c
 void            sockinit(void);
@@ -238,4 +239,3 @@ void            sockrecvudp(struct mbuf*, uint32, uint16, uint16);
 //#endif
 
 void            hexdump(void *, uint); // user add
-void            ipdump(struct ip *, struct mbuf *); // user add
