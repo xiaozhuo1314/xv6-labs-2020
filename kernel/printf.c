@@ -94,7 +94,7 @@ printf(char *fmt, ...)
       printptr(va_arg(ap, uint64));
       break;
     case 'c':
-      consputc((int)va_arg(ap, char));
+      consputc((int)va_arg(ap, int));
       break;
     case 's':
       if((s = va_arg(ap, char*)) == 0)
@@ -224,7 +224,7 @@ int snprintf(char *buf, int size, char *fmt, ...)
           ret = sprintint(buf + len, va_arg(ap, int), 16, size - 1 - len);
           break;
         case 'c':
-          ret = sputc(buf + len, va_arg(ap, char));
+          ret = sputc(buf + len, va_arg(ap, int));
           break;
         case 's':
             str = va_arg(ap, char*);

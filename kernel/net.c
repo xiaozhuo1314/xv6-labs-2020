@@ -11,6 +11,7 @@
 #include "net.h"
 #include "defs.h"
 #include "debug.h" // user add
+#include "tcp.h"
 
 static uint32 local_ip = MAKE_IP_ADDR(10, 0, 2, 15); // qemu's idea of the guest IP
 static uint8 local_mac[ETHADDR_LEN] = { 0x52, 0x54, 0x00, 0x12, 0x34, 0x56 };
