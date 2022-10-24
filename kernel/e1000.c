@@ -7,7 +7,9 @@
 #include "defs.h"
 #include "e1000_dev.h"
 #include "net.h"
-#include "debug.h"
+#include "list.h" // user add
+#include "mbuf.h" // user add
+#include "debug.h" // user add
 
 #define TX_RING_SIZE 16
 static struct tx_desc tx_ring[TX_RING_SIZE] __attribute__((aligned(16)));

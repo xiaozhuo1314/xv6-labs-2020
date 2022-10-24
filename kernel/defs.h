@@ -12,7 +12,7 @@ struct superblock;
 struct mbuf;
 struct sock;
 struct ip;
-struct tcp;
+struct tcp_header;
 //#endif
 
 // bio.c
@@ -227,7 +227,7 @@ int             e1000_transmit(struct mbuf*);
 void            net_rx(struct mbuf*);
 void            net_tx_udp(struct mbuf*, uint32, uint16, uint16);
 void            ipdump(struct ip *, struct mbuf *); // user add
-void            tcpdump(struct tcp *, struct mbuf *); // user add
+
 
 // sysnet.c
 void            sockinit(void);
@@ -236,6 +236,5 @@ void            sockclose(struct sock *);
 int             sockread(struct sock *, uint64, int);
 int             sockwrite(struct sock *, uint64, int);
 void            sockrecvudp(struct mbuf*, uint32, uint16, uint16);
-//#endif
 
-void            hexdump(void *, uint); // user add
+//#endif

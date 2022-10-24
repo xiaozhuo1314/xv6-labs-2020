@@ -8,123 +8,16 @@
 #include "riscv.h"
 #include "spinlock.h"
 #include "proc.h"
-#include "net.h"
 #include "defs.h"
 #include "debug.h" // user add
-#include "tcp.h"
+#include "list.h" // user add
+#include "mbuf.h" // user add
+#include "net.h"
+#include "tcp.h" // user add
 
 static uint32 local_ip = MAKE_IP_ADDR(10, 0, 2, 15); // qemu's idea of the guest IP
 static uint8 local_mac[ETHADDR_LEN] = { 0x52, 0x54, 0x00, 0x12, 0x34, 0x56 };
 static uint8 broadcast_mac[ETHADDR_LEN] = { 0xFF, 0XFF, 0XFF, 0XFF, 0XFF, 0XFF };
-
-// Strips data from the start of the buffer and returns a pointer to it.
-// Returns 0 if less than the full requested length is available.
-char *
-mbufpull(struct mbuf *m, unsigned int len)
-{
-  char *tmp = m->head;
-  if (m->len < len)
-    return 0;
-  m->len -= len;
-  m->head += len;
-  return tmp;
-}
-
-// Prepends data to the beginning of the buffer and returns a pointer to it.
-char *
-mbufpush(struct mbuf *m, unsigned int len)
-{
-  m->head -= len;
-  if (m->head < m->buf)
-    panic("mbufpush");
-  m->len += len;
-  return m->head;
-}
-
-// Appends data to the end of the buffer and returns a pointer to it.
-char *
-mbufput(struct mbuf *m, unsigned int len)
-{
-  char *tmp = m->head + m->len;
-  m->len += len;
-  if (m->len > MBUF_SIZE)
-    panic("mbufput");
-  return tmp;
-}
-
-// Strips data from the end of the buffer and returns a pointer to it.
-// Returns 0 if less than the full requested length is available.
-char *
-mbuftrim(struct mbuf *m, unsigned int len)
-{
-  if (len > m->len)
-    return 0;
-  m->len -= len;
-  return m->head + m->len;
-}
-
-// Allocates a packet buffer.
-struct mbuf *
-mbufalloc(unsigned int headroom)
-{
-  struct mbuf *m;
- 
-  if (headroom > MBUF_SIZE)
-    return 0;
-  m = kalloc();
-  if (m == 0)
-    return 0;
-  m->next = 0;
-  m->head = (char *)m->buf + headroom;
-  m->len = 0;
-  memset(m->buf, 0, sizeof(m->buf));
-  return m;
-}
-
-// Frees a packet buffer.
-void
-mbuffree(struct mbuf *m)
-{
-  kfree(m);
-}
-
-// Pushes an mbuf to the end of the queue.
-void
-mbufq_pushtail(struct mbufq *q, struct mbuf *m)
-{
-  m->next = 0;
-  if (!q->head){
-    q->head = q->tail = m;
-    return;
-  }
-  q->tail->next = m;
-  q->tail = m;
-}
-
-// Pops an mbuf from the start of the queue.
-struct mbuf *
-mbufq_pophead(struct mbufq *q)
-{
-  struct mbuf *head = q->head;
-  if (!head)
-    return 0;
-  q->head = head->next;
-  return head;
-}
-
-// Returns one (nonzero) if the queue is empty.
-int
-mbufq_empty(struct mbufq *q)
-{
-  return q->head == 0;
-}
-
-// Intializes a queue of mbufs.
-void
-mbufq_init(struct mbufq *q)
-{
-  q->head = 0;
-}
 
 // This code is lifted from FreeBSD's ping.c, and is copyright by the Regents
 // of the University of California.
@@ -285,32 +178,6 @@ done:
 
 // receives a UDP packet
 static void
-net_rx_tcp(struct mbuf *m, uint16 len, struct ip *iphdr)
-{
-  struct tcp *tcphdr;
-  tcphdr = mbufpullhdr(m, *tcphdr);
-  if(!tcphdr)
-    goto fail;
-  
-#ifdef CONFIG_DEBUG
-  tcpdump(tcphdr, m);
-#endif
-  
-  // 判断长度,若过长则将m->len和m->head指向tcp数据部分的长度和起始位置
-  // mbufpullhdr会将此时的m->head向后走struct tcp字节,恰好越过了tcp固定头部部分,但是tcp头部可能还会有变长部分,也得越过
-  if(tcphdr->doff > TCP_MIN_DATA_OFF) // 头部长度超过20字节了
-  {
-    // 为了使m->head指向数据部分,则还得使其往后走,越过tcp头部的变长部分
-    m->head += (tcphdr->doff - TCP_MIN_DATA_OFF) * 4;
-    m->len -= (tcphdr->doff - TCP_MIN_DATA_OFF) * 4;
-  }
-
-fail:
-  mbuffree(m);
-}
-
-// receives a UDP packet
-static void
 net_rx_udp(struct mbuf *m, uint16 len, struct ip *iphdr)
 {
   struct udp *udphdr;
@@ -442,23 +309,4 @@ void ipdump(struct ip *iphdr, struct mbuf *m)
   ip_dbg("destination addr: %s\n", ip2host(iphdr->ip_dst, ip_addr, IPSTR_LEN));
 
   hexdump((void *)m->head, m->len); // 打印ip数据部分
-}
-
-/* tcp信息打印 */
-void tcpdump(struct tcp *tcphdr, struct mbuf *m)
-{
-  tcp_dbg("tcp\n");
-  tcp_dbg("src port: %d\n", ntohs(tcphdr->sport));
-  tcp_dbg("dst port: %d\n", ntohs(tcphdr->dport));
-  tcp_dbg("seq: %d\n", ntohl(tcphdr->seq));
-  tcp_dbg("ack number: %d\n", ntohl(tcphdr->acknum));
-  tcp_dbg("data offset: %d, reserved: 0x%x\n", tcphdr->doff, tcphdr->reserved);
-  tcp_dbg("FIN: %d, SYN: %d, RST: %d, PSH: %d, ACK: %d, URG: %d, ECE: %d, CWR: %d\n",
-          tcphdr->fin, tcphdr->syn, tcphdr->rst, tcphdr->psh, tcphdr->urg, tcphdr->ece, tcphdr->cwr);
-  tcp_dbg("window size: %d\n", ntohs(tcphdr->winsize));
-  tcp_dbg("checksum: 0x%x\n", ntohs(tcphdr->checksum));
-  tcp_dbg("urgptr: 0x%x\n", ntohs(tcphdr->urgptr));
-
-  tcp_dbg("tcp data len: %d\n", m->len); // 由于拿出了tcp头部,此时m中的head指向了tcp数据部分的开始位置
-  hexdump((void *)m->head, m->len); // 打印tcp数据部分
 }

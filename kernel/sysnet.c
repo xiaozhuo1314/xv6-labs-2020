@@ -12,7 +12,10 @@
 #include "fs.h"
 #include "sleeplock.h"
 #include "file.h"
+#include "list.h"
 #include "net.h"
+#include "list.h" // user add
+#include "mbuf.h" // user add
 
 struct sock {
   struct sock *next; // the next socket in the list
@@ -25,6 +28,9 @@ struct sock {
 
 static struct spinlock lock;
 static struct sock *sockets;
+
+struct spinlock tcpsocks_list_lk; // tcp socks列表锁
+struct linked_list tcpsocks_list_head; // tcp socks列表头节点
 
 void
 sockinit(void)

@@ -33,6 +33,8 @@ OBJS = \
   $K/sysfile.o \
   $K/kernelvec.o \
   $K/plic.o \
+  $K/debug.o \
+  $K/mbuf.o \
   $K/virtio_disk.o
 
 OBJS_KCSAN = \
@@ -65,7 +67,6 @@ OBJS += \
 	$K/net.o \
 	$K/sysnet.o \
 	$K/pci.o \
-	$K/debug.o \
 	$K/tcp.o
 endif
 
