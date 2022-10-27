@@ -140,9 +140,20 @@ struct tcp_sock {
 };
 
 /* 一堆函数,放在这里而不是def.h是因为,在这里的话可以将tcp相关的头文件和源文件一起拿出去用 */
-
-// tcp.c
-void tcpdump(struct tcp_header *, struct mbuf *);
-void net_rx_tcp(struct mbuf *, uint16, struct ip *);
+// 打印tcp信息
+void tcpdump(struct tcp_header *tcphdr, struct mbuf *m);
+// 打印tcp socket信息
+void tcpsock_dump(char *msg, struct tcp_sock *ts);
+// tcpsock队列中找到的socket显示该tcp已经关闭了
+static int tcp_closed(struct tcp_sock *ts, struct tcp_header *th, struct mbuf *m);
+// tcpsock队列中找到的socket显示该端口正在监听
+static int tcp_in_listen(struct tcp_sock *ts, struct tcp_header *th, struct ip *iphdr, struct mbuf *m);
+// tcpsock队列中找到的socket显示本机刚处于syn sent状态
+static int tcp_synsent(struct tcp_sock *ts, struct tcp_header *th, struct mbuf *m);
+// 依据收到的tcp报文的状态进行相应操作
+int tcp_input_state(struct tcp_sock *ts, struct tcp_header *th, struct ip *iphdr, struct mbuf *m);
+// 读取tcp数据
+void net_rx_tcp(struct mbuf *m, uint16 len, struct ip *iphdr);
+// 
 
 #endif

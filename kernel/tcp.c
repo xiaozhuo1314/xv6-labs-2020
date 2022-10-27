@@ -41,6 +41,21 @@ void tcpdump(struct tcp_header *tcphdr, struct mbuf *m)
   hexdump((void *)m->head, m->len); // 打印tcp数据部分
 }
 
+/* tcpsock信息打印 */
+void tcpsock_dump(char *msg, struct tcp_sock *ts)
+{
+  tcp_dbg("%s:::TCP x:%d > %d.%d.%d.%d:%d (snd_una %d, snd_nxt %d, snd_wnd %d, "
+         "snd_wl1 %d, snd_wl2 %d, rcv_nxt %d, rcv_wnd %d recv-q %d send-q %d "
+         " backlog %d) state %s\n", msg,
+         ts->sport, (uint8)(ts->daddr >> 24), (uint8)(ts->daddr >> 16), (uint8)(ts->daddr >> 8), (uint8)(ts->daddr >> 0),
+         ts->dport, (ts)->tcb.snd_una - (ts)->tcb.iss,
+         (ts)->tcb.snd_nxt - (ts)->tcb.iss, (ts)->tcb.snd_wnd,
+         (ts)->tcb.snd_wl1, (ts)->tcb.snd_wl2,
+         (ts)->tcb.rcv_nxt - (ts)->tcb.irs, (ts)->tcb.rcv_wnd,
+         ts->rcv_queue.len, ts->write_queue.len, (ts)->backlog,
+         tcp_state_dbg[ts->state]);
+}
+
 /* tcp header中的多字节的序号之类的转换为本地字节序 */
 void tcpheader_ntoh(struct tcp_header *t)
 {
@@ -114,13 +129,42 @@ struct tcp_sock *tcp_sock_lookup(uint32 src, uint32 dst, uint16 sport, uint16 dp
   return tcpsock;
 }
 
+/* 
+ * 依据本地存储的tcp socket状态进行相应操作
+ * ts为本地tcp_sock队列中找到的与对方连接的tcp socket
+ * th为本机接收的tcp报文的头部
+ * iphdr为本机接收的ip报文的头部
+ * m为本机接收的链路层的buf,包含链路层头部和数据
+ */
+int tcp_input_state(struct tcp_sock *ts, struct tcp_header *th, struct ip *iphdr, struct mbuf *m)
+{
+// 打印tcp socket信息
+#ifdef CONFIG_DEBUG
+  tcpsock_dump("input state", ts);
+#endif
+
+  switch (ts->state)
+  {
+  case TCP_CLOSED: // 本机找到的tcp socket信息显示已经关闭了
+    return tcp_closed(ts, th, m);
+  case TCP_LISTEN:
+    return tcp_synsent(ts, th, m);
+  default:
+    break;
+  }
+}
+
 // receives a TCP packet
 void net_rx_tcp(struct mbuf *m, uint16 len, struct ip *iphdr)
 {
   struct tcp_header *tcphdr;
   tcphdr = mbufpullhdr(m, *tcphdr);
   if(!tcphdr)
-    goto fail;
+  {
+    tcp_dbg("tcp header is null\n");
+    mbuffree(m);
+    return;
+  }
   
 #ifdef CONFIG_DEBUG
   tcpdump(tcphdr, m);
@@ -147,14 +191,18 @@ void net_rx_tcp(struct mbuf *m, uint16 len, struct ip *iphdr)
   if(tcpsock == NULL)
   {
     tcp_dbg("No TCP socket for sport:%d  dport:%d\n", tcphdr->sport, tcphdr->dport);
-    goto fail;
+    mbuffree(m);
+    return;
   }
 
 #ifdef CONFIG_DEBUG
   tcp_dbg("tcp socket has found, sport: %d, dport: %d, state: %s\n", tcpsock->sport, tcpsock->dport, tcp_state_dbg[tcpsock->state]);
 #endif
 
-  
-fail:
-  mbuffree(m);
+  // 获取锁
+  acquire(&tcpsock->lock);
+  // 根据查找到的tcp socket和收到的tcp报文去检查
+  int ret = tcp_input_state(tcpsock, tcphdr, iphdr, m);
+  if(ret == 0)
+    release(&tcpsock->lock);
 }
