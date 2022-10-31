@@ -33,7 +33,7 @@ struct tcp_header {
        urg:1,
        ece:1,
        cwr:1; // ece和cwr是保留位的后两位,且cwr的位数比ece高
-  uint16 winsize; // 窗口大小
+  uint16 winsize; // 本机的接收窗口大小
   uint16 checksum; // 校验和
   uint16 urgptr; // 紧急指针,如果urg标志被设置,那么这个指针就有值
 };
@@ -60,11 +60,11 @@ enum tcpstate {
 #define TCP_DOFFSET sizeof(struct tcp_header) / 4
 
 // 设置标志位
-#define TCP_FIN 0x01
-#define TCP_SYN 0x02
-#define TCP_RST 0x04
-#define TCP_PSH 0x08
-#define TCP_ACK 0x10
+#define TCP_FIN 0x01 // 关闭连接
+#define TCP_SYN 0x02 // 建立连接
+#define TCP_RST 0x04 // 异常的关闭连接,重置tcp连接
+#define TCP_PSH 0x08 // 收到该标志位的tcp主机,需要尽快的将该tcp报文传递给应用层
+#define TCP_ACK 0x10 // 确认标志
 
 #define TCP_MSL 100 // 10 sec
 #define TCP_TIMEWAIT_TIMEOUT (2 * TCP_MSL) // time_wait状态等待的时间
@@ -139,21 +139,24 @@ struct tcp_sock {
   struct spinlock lock;               // 自旋锁
 };
 
-/* 一堆函数,放在这里而不是def.h是因为,在这里的话可以将tcp相关的头文件和源文件一起拿出去用 */
+/* tcp.c*/
 // 打印tcp信息
 void tcpdump(struct tcp_header *tcphdr, struct mbuf *m);
 // 打印tcp socket信息
 void tcpsock_dump(char *msg, struct tcp_sock *ts);
-// tcpsock队列中找到的socket显示该tcp已经关闭了
-static int tcp_closed(struct tcp_sock *ts, struct tcp_header *th, struct mbuf *m);
-// tcpsock队列中找到的socket显示该端口正在监听
-static int tcp_in_listen(struct tcp_sock *ts, struct tcp_header *th, struct ip *iphdr, struct mbuf *m);
-// tcpsock队列中找到的socket显示本机刚处于syn sent状态
-static int tcp_synsent(struct tcp_sock *ts, struct tcp_header *th, struct mbuf *m);
-// 依据收到的tcp报文的状态进行相应操作
-int tcp_input_state(struct tcp_sock *ts, struct tcp_header *th, struct ip *iphdr, struct mbuf *m);
 // 读取tcp数据
 void net_rx_tcp(struct mbuf *m, uint16 len, struct ip *iphdr);
-// 
+
+/* tcp_in.c*/
+// 依据收到的tcp报文的标志位和本机tcp状态进行相应操作
+int tcp_input_state(struct tcp_sock *ts, struct tcp_header *th, struct ip *iphdr, struct mbuf *m);
+
+/* tcp_out.c */
+void tcp_send_ack(struct tcp_sock *ts);
+int tcp_send_reset(struct tcp_sock *ts);
+void tcp_send_synack(struct tcp_sock *ts, struct tcp_header *th);
+
+/* tcp_socket.c */
+struct tcp_sock *tcp_sock_alloc();
 
 #endif

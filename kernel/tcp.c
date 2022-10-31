@@ -80,8 +80,8 @@ void tcp_init_segment(struct tcp_header *t, struct mbuf *m)
  * 从tcp_sock链表中获取匹配的tcp sock,若该连接还未建立,就根据监听端口找
  * src: 源地址
  * dst: 目的地址
- * sport: 源端口
- * dport: 目的端口
+ * sport: 源端口,本地字节序
+ * dport: 目的端口,本地字节序
  */
 struct tcp_sock *tcp_sock_lookup(uint32 src, uint32 dst, uint16 sport, uint16 dport)
 {
@@ -103,7 +103,7 @@ struct tcp_sock *tcp_sock_lookup(uint32 src, uint32 dst, uint16 sport, uint16 dp
      * sport为对方tcp报文中的源端口,也就是对方的端口; dport为对方报文中的目的端口,也就是收到该报文的本机的端口
      * 所以寻找到的it中,it->daddr(本机的目的地址)应该为src,it->saddr(本机的源地址)应该为dst
      * it->dport(本机的目的端口)应该为sport,it->sport(本机的源端口)应该为dport
-     * 这里没有再去判断tcp的状态是否是
+     * 这里没有再去判断tcp的状态是否是建立的
      */
     if(src == it->daddr && dst == it->saddr && sport == it->dport && dport == it->sport)
     {
@@ -127,31 +127,6 @@ struct tcp_sock *tcp_sock_lookup(uint32 src, uint32 dst, uint16 sport, uint16 dp
   
   release(&tcpsocks_list_lk); 
   return tcpsock;
-}
-
-/* 
- * 依据本地存储的tcp socket状态进行相应操作
- * ts为本地tcp_sock队列中找到的与对方连接的tcp socket
- * th为本机接收的tcp报文的头部
- * iphdr为本机接收的ip报文的头部
- * m为本机接收的链路层的buf,包含链路层头部和数据
- */
-int tcp_input_state(struct tcp_sock *ts, struct tcp_header *th, struct ip *iphdr, struct mbuf *m)
-{
-// 打印tcp socket信息
-#ifdef CONFIG_DEBUG
-  tcpsock_dump("input state", ts);
-#endif
-
-  switch (ts->state)
-  {
-  case TCP_CLOSED: // 本机找到的tcp socket信息显示已经关闭了
-    return tcp_closed(ts, th, m);
-  case TCP_LISTEN:
-    return tcp_synsent(ts, th, m);
-  default:
-    break;
-  }
 }
 
 // receives a TCP packet
@@ -203,6 +178,6 @@ void net_rx_tcp(struct mbuf *m, uint16 len, struct ip *iphdr)
   acquire(&tcpsock->lock);
   // 根据查找到的tcp socket和收到的tcp报文去检查
   int ret = tcp_input_state(tcpsock, tcphdr, iphdr, m);
-  if(ret == 0)
+  if(ret == 0) // 待定,难道不为0就不释放锁了吗?
     release(&tcpsock->lock);
 }

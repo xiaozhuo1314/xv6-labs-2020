@@ -5,16 +5,15 @@
 #define MBUF_SIZE 2048 // 每个存放packet的mbuf的数据区域的大小
 
 /*
- * mbuf中buf是存放packet的数据区域,但是packet不一定就是从buf的起始内存地址开始的
- * 而是从mbuf的head位置开始的,head是在buf区域中,所以headroom就是buf和head之间的那部分空白区域
- * 也就是packet从buf+headroom位置处开始存放
+ * mbuf中buf是存放packet的数据区域,但是packet各个部分不一定就是从buf的起始内存地址开始的
+ * 这里留出来的MBUF_DEFAULT_HEADROOM是为了放tcp头部、ip头部等信息的
  */
 #define MBUF_DEFAULT_HEADROOM 128
 
 struct mbuf {
   struct mbuf  *next; // the next mbuf in the chain
-  char         *head; // the current start position of the buffer
-  unsigned int len;   // the length of the buffer
+  char         *head; // the current start position of the buffer,如ip头部位置、tcp头部位置等等,是一直在变化的
+  unsigned int len;   // the length of the buffer,如ip报文长度(头部+数据)、tcp报文长度(头部+数据),是一直在变化的
   char         buf[MBUF_SIZE]; // the backing store
 
   // 加入tcp需要使用的

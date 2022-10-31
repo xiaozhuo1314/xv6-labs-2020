@@ -226,6 +226,7 @@ int             e1000_transmit(struct mbuf*);
 // net.c
 void            net_rx(struct mbuf*);
 void            net_tx_udp(struct mbuf*, uint32, uint16, uint16);
+static void     net_tx_ip(struct mbuf *, uint8, uint32);
 void            ipdump(struct ip *, struct mbuf *); // user add
 
 

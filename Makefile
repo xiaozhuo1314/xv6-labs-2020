@@ -67,6 +67,8 @@ OBJS += \
 	$K/net.o \
 	$K/sysnet.o \
 	$K/pci.o \
+	$K/tcp_in.o \
+	$K/tcp_out.o \
 	$K/tcp.o
 endif
 
