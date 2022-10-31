@@ -9,9 +9,52 @@
 #include "debug.h"
 #include "tcp.h"
 
+/* 
+ * 每两个字节(16bits)作为uint16类型进行整数相加求和
+ * addr表示起始字节位置
+ * cnt表示一共有多少个字节
+ */
+uint32 sum_every_2bytes(void *addr, int cnt)
+{
+  register uint32 sum = 0;
+  uint16 *p = (uint16 *)addr;
+  while(cnt > 1)
+  {
+    sum += *(p++);
+    cnt -= 2; // 由于每个uint16占2字节,所以应该减去2
+  }
+  // 若还剩下一个字节,则也需要加上
+  if(cnt > 0)
+  {
+    sum += *((uint8 *)p);
+  }
+  return sum;
+}
+
+// 设置通用校验值 https://tools.ietf.org/html/rfc1071
+uint16 checksum(void *addr, int cnt, int start)
+{
+  // 将addr开始的内存位置处,每两个字节作为一个uint16整形数字,加到start上,若和超过了16bits,需要将前16bits和后16bits相加
+  uint32 sum = start;
+  sum += sum_every_2bytes(addr, cnt);
+
+  // 32bits 转为 16bits
+  while((sum >> 16))
+    sum = (sum & 0xffff) + (sum >> 16);
+  
+  // 返回值取反
+  return ~sum;
+}
+
+// 设置tcp ipv4的校验值
 int tcp_v4_checksum(struct mbuf *m, uint32 saddr, uint32 daddr)
 {
-    return 0;
+  uint32 sum = 0;
+  sum += saddr;
+  sum += daddr;
+  sum += htons(IPPROTO_TCP);
+  sum += htonl(m->len);
+  return checksum(m->head, m->len, sum);
 }
 
 void tcp_transmit_mbuf(struct tcp_sock *ts, struct tcp_header *th, struct mbuf *m, uint32 seq)
