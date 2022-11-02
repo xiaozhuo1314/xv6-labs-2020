@@ -11,12 +11,21 @@
 // 创建新的tcp socket
 static struct tcp_sock *create_child_tcpsock(struct tcp_sock *ts, struct tcp_header *th, struct ip *iphdr)
 {
+  // 创建新tcp socket初始化
   struct tcp_sock *newts = tcp_sock_alloc();
   if(newts == NULL)
     return NULL;
-
   // 由于只有在tcp socket处于listening状态时才会去接收syn报文,所以创建完socket后要设置为syn recv状态
-  return NULL;
+  tcp_set_state(newts, TCP_SYN_RECV);
+  // 设置新socket属性
+  newts->saddr = ntohl(iphdr->ip_dst);
+  newts->daddr = ntohl(iphdr->ip_src);
+  newts->sport = th->dport; // 已经转为了本地字节序
+  newts->dport = th->sport; // 已经转为了本地字节序
+  newts->parent = ts; // 设置父socket,不知道啥用,待定
+  list_add(&newts->list, &ts->listen_queue); // 加入到父亲的监听队列,不知道为啥加到父亲上,待定
+
+  return newts;
 }
 
 // 开辟初始发送序列号
@@ -101,7 +110,7 @@ static int tcp_verify_seq(struct tcp_sock *ts, struct tcp_header *th, struct mbu
 /* 
  * 依据本地存储的tcp socket状态和收到的报文的标志位进行相应操作
  * ts为本地tcp_sock队列中找到的与对方连接的tcp socket
- * th为本机接收的tcp报文的头部
+ * th为本机接收的tcp报文的头部,已经转为本地字节序
  * iphdr为本机接收的ip报文的头部
  * m为本机接收的链路层的buf,包含链路层头部和数据
  */

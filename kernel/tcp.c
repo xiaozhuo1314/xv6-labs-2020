@@ -15,7 +15,7 @@ const char *tcp_state_dbg[] = {
   "TCP_ESTABLISHED",
   "TCP_FIN_WAIT_1",
   "TCP_FIN_WAIT_2",
-  "TCP_CLOSE",
+  "TCP_CLOSED",
   "TCP_CLOSE_WAIT",
   "TCP_CLOSING",
   "TCP_LAST_ACK",
@@ -180,4 +180,14 @@ void net_rx_tcp(struct mbuf *m, uint16 len, struct ip *iphdr)
   int ret = tcp_input_state(tcpsock, tcphdr, iphdr, m);
   if(ret == 0) // 待定,难道不为0就不释放锁了吗?
     release(&tcpsock->lock);
+}
+
+// 设置tcp状态
+void tcp_set_state(struct tcp_sock *ts, enum tcpstate state)
+{
+#ifdef CONFIG_DEBUG
+  tcp_dbg("state change from %s to %s\n", tcp_state_dbg[ts->state], tcp_state_dbg[state]);
+#endif
+  // 理论上更改该tcp socket是需要获取锁的,但是由于在前面的net_rx_tcp中已经获取锁了,所以这里不能在此获取了
+  ts->state = state;
 }

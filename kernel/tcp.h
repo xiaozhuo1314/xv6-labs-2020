@@ -121,7 +121,7 @@ struct tcp_sock {
   int accept_backlog;                 // accept队列中元素个数,即已完成连接的队列元素个数
   struct linked_list listen_queue;    // 三次握手中处于SYN_RECV状态的队列
   struct linked_list accept_queue;    // 三次握手中处于ESTABLISHED状态的队列,接下来就需要接收数据了
-  struct linked_list list;            // 待定
+  struct linked_list list;            // 用于标志该socket是在listen_queue还是accept_queue
 
   uint wait_connect;                  // 待定
   uint wait_accept;                   // 睡眠唤醒条件
@@ -146,6 +146,8 @@ void tcpdump(struct tcp_header *tcphdr, struct mbuf *m);
 void tcpsock_dump(char *msg, struct tcp_sock *ts);
 // 读取tcp数据
 void net_rx_tcp(struct mbuf *m, uint16 len, struct ip *iphdr);
+// 设置tco状态
+void tcp_set_state(struct tcp_sock *ts, enum tcpstate state);
 
 /* tcp_in.c*/
 // 依据收到的tcp报文的标志位和本机tcp状态进行相应操作

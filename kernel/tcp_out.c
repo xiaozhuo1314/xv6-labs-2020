@@ -57,6 +57,7 @@ int tcp_v4_checksum(struct mbuf *m, uint32 saddr, uint32 daddr)
   return checksum(m->head, m->len, sum);
 }
 
+// 设置tcp头部并发送出去,ts中的信息都是本地字节序
 void tcp_transmit_mbuf(struct tcp_sock *ts, struct tcp_header *th, struct mbuf *m, uint32 seq)
 {
   //主要是设置tcp头部
@@ -74,11 +75,12 @@ void tcp_transmit_mbuf(struct tcp_sock *ts, struct tcp_header *th, struct mbuf *
   net_tx_ip(m, IPPROTO_TCP, ts->daddr); // net_tx_ip中有htonl将ts->daddr转换为网络字节序,所以这里不需要
 }
 
+// 发送reset报文
 int tcp_send_reset(struct tcp_sock *ts)
 {
   // 创建网卡需要发送的数据,也就是mbuf
   struct mbuf *m = mbufalloc(MBUF_DEFAULT_HEADROOM);
-  if(m == 0)
+  if(m == NULL)
     return -1;
   // 从MBUF_DEFAULT_HEADROOM中,也就是mbuf中的buf和head之间加入空的tcp头部
   struct tcp_header *th;
@@ -89,4 +91,21 @@ int tcp_send_reset(struct tcp_sock *ts)
   // 发送数据
   tcp_transmit_mbuf(ts, th, m, ts->tcb.snd_nxt);
   return 0;
+}
+
+// 发送syn确认报文,这里的th为对方发过来的syn报文头,这里直接复用了其内存位置
+void tcp_send_synack(struct tcp_sock *ts, struct tcp_header *srcth)
+{
+  if(srcth->rst)
+    return;
+  struct mbuf *m = mbufalloc(MBUF_DEFAULT_HEADROOM);
+  if(m == NULL)
+    return;
+  // 从MBUF_DEFAULT_HEADROOM中,也就是mbuf中的buf和head之间加入空的tcp头部
+  struct tcp_header *th;
+  th = mbufpushhdr(m, *th);
+  th->ack = 1; // syn的确认报文
+  th->syn = 1; // syn的确认报文也需要进行握手请求
+
+  tcp_transmit_mbuf(ts, th, m, ts->tcb.iss);
 }
