@@ -22,7 +22,7 @@ struct tcp_header {
   uint16 sport; // 源端口
   uint16 dport; // 目的端口
   uint seq;     // 序号
-  uint acknum;  // 确认号
+  uint ackseq;  // 确认号
   uint reserved:4, // 保留位的前4位
        doff:4;     // 数据偏移
   uint fin:1,
@@ -40,18 +40,33 @@ struct tcp_header {
 
 /* tcp状态 */
 enum tcpstate {
-  TCP_CLOSED,
-	TCP_LISTEN,
-	TCP_SYN_RECV,
-	TCP_SYN_SENT,
-	TCP_ESTABLISHED,
-	TCP_CLOSE_WAIT,
-	TCP_LAST_ACK,
-	TCP_FIN_WAIT1,
-	TCP_FIN_WAIT2,
-	TCP_CLOSING,
-	TCP_TIME_WAIT,
-	TCP_MAX_STATE
+  TCP_LISTEN,       /* represents waiting for a connection request from any remote
+                   TCP and port. */
+  TCP_SYN_SENT,     /* represents waiting for a matching connection request
+                     after having sent a connection request. */
+  TCP_SYN_RECEIVED, /* represents waiting for a confirming connection
+                         request acknowledgment after having both received and sent a
+                         connection request. */
+  TCP_ESTABLISHED,  /* represents an open connection, data received can be
+                        delivered to the user.  The normal state for the data transfer phase
+                        of the connection. */
+  TCP_FIN_WAIT_1,   /* represents waiting for a connection termination request
+                       from the remote TCP, or an acknowledgment of the connection
+                       termination request previously sent. */
+  TCP_FIN_WAIT_2,   /* represents waiting for a connection termination request
+                       from the remote TCP. */
+  TCP_CLOSED,        /* represents no connection state at all. */
+  TCP_CLOSE_WAIT,   /* represents waiting for a connection termination request
+                       from the local user. */
+  TCP_CLOSING,      /* represents waiting for a connection termination request
+                    acknowledgment from the remote TCP. */
+  TCP_LAST_ACK,     /* represents waiting for an acknowledgment of the
+                     connection termination request previously sent to the remote TCP
+                     (which includes an acknowledgment of its connection termination
+                     request). */
+  TCP_TIME_WAIT,    /* represents waiting for enough time to pass to be sure
+                      the remote TCP received the acknowledgment of its connection
+                      termination request. */
 };
 
 // tcp头部固定部分的字节数
@@ -88,7 +103,7 @@ struct tcb {
   uint32 snd_wnd;  // 发送窗口大小
   uint32 snd_up;   // 要发送的紧急指针的地址
   uint32 snd_wl1;  // 上一次用于窗口大小更新的tcp报文段的序列号,即某一方认为自己接受窗口东西太多或太少,在发送的报文里面加入要对方发送窗口变化的信息,将这个报文的序号记录在此
-  uint32 snd_wl2;  // 上一次用于窗口大小更新的tcp确认报文段的序列号,即确认对方发送过来的含有窗口变化请求的报文的确认号
+  uint32 snd_wl2;  // 上一次用于窗口大小更新的tcp确认报文段的序列号,即对方发送过来了含有窗口变化请求的报文,该报文头部中的确认号就是snd_wl2
   uint32 iss;      // 初始的发送序列号
 
   /* 
@@ -123,8 +138,8 @@ struct tcp_sock {
   struct linked_list accept_queue;    // 三次握手中处于ESTABLISHED状态的队列,接下来就需要接收数据了
   struct linked_list list;            // 用于标志该socket是在listen_queue还是accept_queue
 
-  uint wait_connect;                  // 待定
-  uint wait_accept;                   // 睡眠唤醒条件
+  uint wait_connect;                  // 客户端调用connect后,直到三次握手完成,这期间本socket处于wait_connect睡眠状态
+  uint wait_accept;                   // 服务端掉用了accept后,直到三次握手完成,这期间本socket处于wait_accept睡眠状态
   uint wait_rcv;                      // 待定
 
   struct tcp_sock *parent;            // 父socket

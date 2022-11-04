@@ -65,7 +65,7 @@ void tcp_transmit_mbuf(struct tcp_sock *ts, struct tcp_header *th, struct mbuf *
   th->sport = htons(ts->sport); // 本地端口
   th->dport = htons(ts->dport); // 目的端口
   th->seq = htonl(seq); // 序列号
-  th->acknum = htonl(ts->tcb.rcv_nxt); // 期望下次收到的序号
+  th->ackseq = htonl(ts->tcb.rcv_nxt); // 期望下次收到的序号
   th->reserved = 0; // 保留位
   th->winsize = htons(ts->tcb.rcv_wnd); // 本机接收窗口大小
   th->urg = 0;
@@ -108,4 +108,19 @@ void tcp_send_synack(struct tcp_sock *ts, struct tcp_header *srcth)
   th->syn = 1; // syn的确认报文也需要进行握手请求
 
   tcp_transmit_mbuf(ts, th, m, ts->tcb.iss);
+}
+
+// 发送ack确认报文,不带数据的
+void tcp_send_ack(struct tcp_sock *ts)
+{
+  if(ts->state == TCP_CLOSED)
+    return;
+  struct mbuf *m = mbufalloc(MBUF_DEFAULT_HEADROOM);
+  if(m == NULL)
+    return;
+  struct tcp_header *th;
+  th = mbufpushhdr(m, *th);
+  th->ack = 1; // 确认报文标志
+
+  tcp_transmit_mbuf(ts, th, m, ts->tcb.snd_nxt);
 }

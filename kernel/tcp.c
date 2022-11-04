@@ -29,7 +29,7 @@ void tcpdump(struct tcp_header *tcphdr, struct mbuf *m)
   tcp_dbg("src port: %d\n", ntohs(tcphdr->sport));
   tcp_dbg("dst port: %d\n", ntohs(tcphdr->dport));
   tcp_dbg("seq: %d\n", ntohl(tcphdr->seq));
-  tcp_dbg("ack number: %d\n", ntohl(tcphdr->acknum));
+  tcp_dbg("ack number: %d\n", ntohl(tcphdr->ackseq));
   tcp_dbg("data offset: %d, reserved: 0x%x\n", tcphdr->doff, tcphdr->reserved);
   tcp_dbg("FIN: %d, SYN: %d, RST: %d, PSH: %d, ACK: %d, URG: %d, ECE: %d, CWR: %d\n",
           tcphdr->fin, tcphdr->syn, tcphdr->rst, tcphdr->psh, tcphdr->urg, tcphdr->ece, tcphdr->cwr);
@@ -62,7 +62,7 @@ void tcpheader_ntoh(struct tcp_header *t)
   t->sport = ntohs(t->sport);
   t->dport = ntohs(t->dport);
   t->seq = ntohl(t->seq);
-  t->acknum = ntohl(t->acknum);
+  t->ackseq = ntohl(t->ackseq);
   t->winsize = ntohs(t->winsize);
   t->checksum = ntohs(t->checksum);
   t->urgptr = ntohs(t->urgptr);

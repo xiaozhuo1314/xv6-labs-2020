@@ -16,7 +16,7 @@ static struct tcp_sock *create_child_tcpsock(struct tcp_sock *ts, struct tcp_hea
   if(newts == NULL)
     return NULL;
   // 由于只有在tcp socket处于listening状态时才会去接收syn报文,所以创建完socket后要设置为syn recv状态
-  tcp_set_state(newts, TCP_SYN_RECV);
+  tcp_set_state(newts, TCP_SYN_RECEIVED);
   // 设置新socket属性
   newts->saddr = ntohl(iphdr->ip_dst);
   newts->daddr = ntohl(iphdr->ip_src);
@@ -98,7 +98,111 @@ static int tcp_in_listen(struct tcp_sock *ts, struct tcp_header *th, struct ip *
 // tcpsock队列中找到的socket显示本机刚处于syn sent状态
 static int tcp_synsent(struct tcp_sock *ts, struct tcp_header *th, struct mbuf *m)
 {
-    return 0;
+  /*
+   * 此时tcp sock处于syn sent状态
+   * 收到的报文,如果是syn=1 & ack=1,且ack_num正好是正在等的,那么就是established状态
+   * 如果收到了syn=1但是没有ack标志的报文,则需要设置为syn recv状态
+   * 其他状态需要特殊分析
+   */
+  
+  // 收到的报文里面有ack标志
+  if(th->ack)
+  {
+    /* 
+     * 发过来的tcp报文的ack seq,是对本方前一个报文的确认
+     * 因此发过来的tcp报文的ack seq应该是与本方的发送序列号集合有关
+     * 如果这个ack seq小于等于本方发送的第一个序列号(因为ack seq至少是加了1的),或者大于接下来将要发送的序列号
+     * 说明肯定是不对的
+     */ 
+    if(th->ackseq <= ts->tcb.iss || th->ackseq > ts->tcb.snd_nxt)
+    {
+      // 重置连接
+      tcp_send_reset(ts);
+      goto discard;
+    }
+  }
+
+  // 如果是rst
+  if(th->rst)
+  {
+    // rst不应有ack,是不正确的
+    if(th->ack)
+    {
+#ifdef CONFIG_DEBUG
+      tcp_dbg("Error:connection reset\n");
+#endif
+      tcp_set_state(ts, TCP_CLOSED);
+      wakeup(&ts->wait_connect);
+      goto discard;
+    }
+  }
+
+  // 收到的报文里有syn
+  if(th->syn)
+  {
+    /*
+     * 能到这里说明在有syn标志的前提下,要不就是有ack标志且序列号确认通过,要不就是没有确认标志
+     * 不管哪种情况,都是正常情况,而且由于此时本机处于的是syn sent状态,所以收到的报文是本次连接过程中
+     * 本机第一次收到的报文,所以不管哪种情况都需要设置初始接受的报文和待确认的下一次报文
+     */
+    ts->tcb.irs = th->seq;
+    ts->tcb.rcv_nxt = th->seq + 1; // syn报文只有一个字节,且对方发过来的是syn报文
+    // 既有syn又有ack, 说明本机的报文能被确认了,而且接收到的ackseq是期待收到的下一个序列号
+    // 但是这里要注意的是,tcp报文不一定按照顺序到达,所以ackseq不一定就等于snd_nxt
+    // 有可能本机发送了1 2 3三个报文,接下来要发4,但是收到的是对2的确认报文,所以此时ackseq为3,不等于4
+    // 所以对于syn sent状态的本机来说,只要syn和ack标志有,且收到的报文ackseq序号大于本机已发送但待确认的初始序号
+    // 即可认为对方是确认了连接请求
+    if(th->ack && th->ackseq > ts->tcb.snd_una) // 对方确认了连接
+    {
+      // 对方确认了连接,那么本方成了established状态且需要再返回一个ack报文
+      tcp_set_state(ts, TCP_ESTABLISHED);
+      // 设置一些属性
+      ts->tcb.snd_wnd = th->winsize;
+      ts->tcb.snd_wl1 = th->seq;
+      ts->tcb.snd_wl2 = th->ackseq;
+      tcp_send_ack(ts);
+
+      /* 
+       * 更新已发送但是未确认的序列号集合的初始序列号,
+       * 因为th->ackseq前面的都已经确认被对方收到了,
+       * 所以此时本机已发送但待确认的初始序列号应该是从th->ackseq开始
+       */
+      ts->tcb.snd_una = th->ackseq;
+
+      /*
+       * 这里要解释一下,为什么发送完之后没有更改snd_nxt
+       * 本机此时的状态为syn sent状态,且收到了带有ack标志和syn标志、序列号是正确的报文
+       * 说明对方现在是syn rcvd状态,上面的代码中本机发了一个ack报文(假设序列号为x+1)过去后
+       * 若对方收到了该报文,那么对方的状态是设置成了established状态,设置完后不会再给本机发送确认报文了
+       * 也就是tcp_synrecv_ack函数不会发送报文,因为本机发送的x+1报文仅仅只是一个ack确认报文,未携带数据之类的
+       * 所以对方不应该再对这个ack报文进行ack确认,ack确认报文,ack确认报文的ack确认报文,ack确认报文的ack确认报文的ack确认报文,这不就是死循环了嘛
+       * 那么就相当于本机x+1序列号的ack报文永远不会被确认
+       * 那么我们就可以复用这个序列号x+1,复用之后的序列号所在的报文就需要携带数据之类的进行通信了,这样的话就可以对这个序列号进行ack确认了
+       * 而且tcp_synrecv_ack函数既没有对ack报文进行ack确认,也未改变rcv_nxt,也就是rcv_nxt一直是x+1未变化
+       * 所以本机就可以复用上面ack报文(序列号为x+1)的序列号x+1,这样正好对方rcv_nxt也是期待收到x+1报文
+       * 实现了序列号资源的节省
+       */
+
+#ifdef CONFIG_DEBUG
+      tcp_dbg("Active three-way handshake successes!(SND.WIN:%d)\n", ts->tcb.snd_wnd);
+#endif
+
+      // 唤醒等待
+      wakeup(&ts->wait_connect); // 之前本socket睡眠在了等待连接中,也就是在等待连接完成
+    }
+    else // 否则需要进入syc rcvd状态
+    {
+      tcp_set_state(ts, TCP_SYN_RECEIVED);
+      // 进入了SYN_RECEIVED状态,就说明相当于本机第一次接收到了对方syn(不带ack)报文
+      // 那么本机需要回复syn+ack报文,但是本机前面的syn报文还未被确认呢,所以snd_una需要为iss
+      ts->tcb.snd_una = ts->tcb.iss;
+      // 发送syn+ack报文
+      tcp_send_synack(ts, th);
+    }
+  }
+  discard:
+    mbuffree(m);
+  return 0;
 }
 
 // 检查序列号
